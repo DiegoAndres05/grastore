@@ -24,6 +24,10 @@ body,
   min-height: 100%;
 }
 
+html:not(.ready) #root {
+  visibility: hidden;
+}
+
 body {
   margin: 0;
   background: var(--color-paper);
@@ -89,11 +93,18 @@ textarea:focus {
 
 @keyframes boot-pop {
   from {
-    opacity: 0;
-    transform: scale(0.84);
+    transform: scale(0.92);
   }
   to {
-    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes boot-rise {
+  from {
+    transform: translateY(10px);
+  }
+  to {
     transform: none;
   }
 }
@@ -207,10 +218,13 @@ textarea:focus {
 
 .boot {
   position: fixed;
+  z-index: 200;
   inset: 0;
-  z-index: 80;
   display: grid;
   place-items: center;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
   background: #0b0b0b;
   color: #f6f6f4;
 }
@@ -279,7 +293,8 @@ textarea:focus {
   font-size: 11px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  animation: rise 0.6s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 1;
+  animation: boot-rise 0.6s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .boot-label {
@@ -287,7 +302,8 @@ textarea:focus {
   color: #a1a1a1;
   font-size: 13px;
   letter-spacing: 0.08em;
-  animation: rise 0.6s 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 1;
+  animation: boot-rise 0.6s 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .boot-track {
@@ -296,7 +312,8 @@ textarea:focus {
   margin-top: 16px;
   overflow: hidden;
   background: #2a2a2a;
-  animation: rise 0.6s 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 1;
+  animation: boot-rise 0.6s 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .boot-track span {
@@ -455,6 +472,8 @@ textarea:focus {
   .boot-track,
   .boot-track span {
     animation: none;
+    opacity: 1;
+    transform: none;
   }
 
   .trend-line {

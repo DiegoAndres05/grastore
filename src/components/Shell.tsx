@@ -69,7 +69,7 @@ function SideNav({
   return (
     <div className="flex h-full flex-col border-r border-brass/50 bg-espresso text-white">
       <div className="px-6 pt-7 pb-6">
-        <img src="/logo.svg" alt="La Grasita Store" className="mark-live w-full" />
+        <img src="/logo.svg" alt="La Grasita Store" decoding="sync" fetchPriority="high" className="mark-live w-full" />
         <p className="mt-4 text-[11px] tracking-[0.22em] text-brass uppercase">Cartagena</p>
       </div>
       <nav className="flex-1 space-y-1 overflow-auto px-3">
@@ -99,14 +99,18 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
       <aside className="aside-in sticky top-0 hidden h-screen lg:block">
         <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => setConfirm(true)} />
       </aside>
-      {menu ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button type="button" className="menu-scrim absolute inset-0 bg-espresso/60" aria-label="Cerrar menú" onClick={() => setMenu(false)} />
-          <div className="menu-drawer absolute inset-y-0 left-0 w-[240px]">
-            <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} />
-          </div>
+      <div className={`fixed inset-0 z-40 lg:hidden ${menu ? '' : 'pointer-events-none'}`} inert={menu ? undefined : true}>
+        <button
+          type="button"
+          className={`absolute inset-0 bg-espresso/60 ${menu ? 'menu-scrim' : 'opacity-0'}`}
+          aria-label="Cerrar menú"
+          tabIndex={menu ? 0 : -1}
+          onClick={() => setMenu(false)}
+        />
+        <div className={`absolute inset-y-0 left-0 w-[240px] ${menu ? 'menu-drawer' : '-translate-x-[105%]'}`}>
+          <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} />
         </div>
-      ) : null}
+      </div>
       <div className="min-w-0">
         <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-paper/90 px-4 py-3 backdrop-blur lg:hidden">
           <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line" aria-label="Abrir menú" onClick={() => setMenu(true)}>

@@ -41,13 +41,20 @@ export default function App() {
 
   useEffect(() => {
     const node = document.getElementById('boot')
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const hold = reduce ? 40 : 1280
-    const leave = window.setTimeout(() => node?.classList.add('boot-out'), hold)
-    const done = window.setTimeout(() => {
-      node?.remove()
+    if (!node) {
+      document.documentElement.classList.add('ready')
       setRevealed(true)
-    }, hold + (reduce ? 0 : 460))
+      return
+    }
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const hold = 1280
+    const fade = reduce ? 180 : 460
+    const leave = window.setTimeout(() => node.classList.add('boot-out'), hold)
+    const done = window.setTimeout(() => {
+      node.remove()
+      document.documentElement.classList.add('ready')
+      setRevealed(true)
+    }, hold + fade)
     return () => {
       window.clearTimeout(leave)
       window.clearTimeout(done)

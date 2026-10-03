@@ -39,9 +39,10 @@ export function Splash({ label, hold = 980, onDone }: { label: string; hold?: nu
 
   useEffect(() => {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const wait = reduce ? 0 : hold
+    const wait = hold
+    const fade = reduce ? 180 : 460
     const leave = window.setTimeout(() => setOut(true), wait)
-    const finish = window.setTimeout(() => done.current(), wait + (reduce ? 0 : 460))
+    const finish = window.setTimeout(() => done.current(), wait + fade)
     return () => {
       window.clearTimeout(leave)
       window.clearTimeout(finish)
