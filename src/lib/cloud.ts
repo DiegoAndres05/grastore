@@ -1,6 +1,7 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
 import type { Access } from './access'
 import { hydrate } from './book'
+import { projectUrl } from './supabaseUrl'
 import type { State } from '../types'
 
 export type CloudConfig = { url: string; anonKey: string }
@@ -9,7 +10,7 @@ export function readCloudConfig(): CloudConfig | null {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim()
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
   if (!url || !anonKey) return null
-  return { url, anonKey }
+  return { url: projectUrl(url), anonKey }
 }
 
 let client: SupabaseClient | null = null

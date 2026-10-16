@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { effectivePermissions, permissionFor, redactState, type Access } from '../lib/access'
 import { hydrate } from '../lib/book'
 import { runAction } from '../lib/ops'
+import { projectUrl } from '../lib/supabaseUrl'
 import type { State } from '../types'
 
 type Profile = {
@@ -19,7 +20,7 @@ function serverEnv() {
   const anon = process.env.SUPABASE_ANON_KEY?.trim() || process.env.VITE_SUPABASE_ANON_KEY?.trim()
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
   if (!url || !anon || !service) return null
-  return { url, anon, service }
+  return { url: projectUrl(url), anon, service }
 }
 
 function adminClient() {
