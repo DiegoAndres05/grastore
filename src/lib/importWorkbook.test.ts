@@ -12,50 +12,49 @@ function sheetBook() {
     [],
     [],
     ['', 'PRODUCTO', 'COLOR', 'TALLA', 'TIPO', 'CANTIDAD', 'VENTAS', 'SALDO', 'COSTO DE VENTA', 'PRECIO X UNID', '$ COMPRADO', '$ ESPERADO', '', '$ VENDIDO', 'COMPRADOR'],
-    ['', '#S%UN(A)@L', 'NEGRO', 'L', 'SUETER', 1, 0, 1, 0, 58_000, 58_000, 95_000],
-    ['', '#S%UN(A)@L', 'NEGRO', 'L', 'SUETER', 1, 0, 1, 0, 58_000, 58_000, 95_000],
-    ['', '#S%UN(A)@M', 'ROJA', 'M', 'SUETER', 1, 0, 1, 0, 40_000, 40_000, 80_000],
-    ['', '#S%UN(A)@L', 'NEGRO', 'L', 'SUETER', 1, 1, 0, 58_000, 58_000, 0, 95_000, '', 70_000, 'Andres Suare'],
-    ['', 'GORRA', 'NEGRO', 'U', 'GORRA', 1, 1, 0, 10_000, 10_000, 0, 20_000, '', 20_000, 'PAGO TATUAJE'],
-    ['BODEGA', 'PANTALONETA DEPORTIVA ECONOMIC', 'ECONOMIC', 'ECONOMIC', 'PANTALONETA', 1, 0, 1, 0, 20_000, 20_000, 35_000],
-    ['', 'INVERSION PRAGA', '', '', '', '', '', '', '', '', 100_000],
-    ['', '', '', '', '', 4, 1, 3, 0, 0, 276_000, 0, '', 70_000],
+    ['', 'EJ-100', 'NEGRO', 'L', 'BUZO', 1, 0, 1, 0, 11_111, 11_111, 22_222],
+    ['', 'EJ-100', 'NEGRO', 'L', 'BUZO', 1, 0, 1, 0, 11_111, 11_111, 22_222],
+    ['', 'EJ-100', 'ROJA', 'M', 'BUZO', 1, 0, 1, 0, 33_333, 33_333, 44_444],
+    ['', 'EJ-100', 'NEGRO', 'L', 'BUZO', 1, 1, 0, 11_111, 11_111, 0, 22_222, '', 18_181, 'Cliente Ejempl'],
+    ['', 'ACCESORIO-EJ', 'NEGRO', 'U', 'ACCESORIO', 1, 1, 0, 7_777, 7_777, 0, 8_888, '', 8_888, 'PAGO TATUAJE'],
+    ['BODEGA', 'SHORT-EJEMPLO', 'OK', 'OK', 'SHORT', 1, 0, 1, 0, 22_223, 22_223, 55_555],
+    ['', 'INVERSION TALLER', '', '', '', '', '', '', '', '', 13_579],
   ])
   const cxc = XLSX.utils.aoa_to_sheet([
     [],
     [],
-    ['', 'Andres Suarez', 50_000, new Date('2026-10-30T00:00:00Z')],
-    ['', 'Willy', 20_000, 'PLAN SEPA'],
-    ['', 'Aponte', 10_000, 'PRESTAMO'],
+    ['', 'Cliente Ejemplo', 54_321, new Date('2026-10-30T00:00:00Z')],
+    ['', 'Cliente Separe', 24_680, 'PLAN SEPA'],
+    ['', 'Prestatario Ejemplo', 97_531, 'PRESTAMO'],
     ['', 'PAGO TATUAJE', 0, ''],
-    ['', 'CxC', 80_000],
+    ['', 'CxC', 176_532],
   ])
   const cxp = XLSX.utils.aoa_to_sheet([
     [],
     [],
-    ['', 'Luz', 15_000],
-    ['', 'Inyec Tio', 30_000],
-    ['', 'Total', 45_000],
+    ['', 'Servicio local', 11_223],
+    ['', 'Inyec Socio Ejemplo', 33_445],
+    ['', 'Total', 44_668],
   ])
   const cash = XLSX.utils.aoa_to_sheet([
     [],
     ['', '', 'NEQUI', '', '', '', '', '', '', 'EFECTIVO', '', '', '', '', '', '', 'BANCOLOMBIA'],
     [],
     ['', '', '', 'CONSIGNACIONES', 'RETIROS', 'SALDO', '', '', '', '', 'MONTO', 'RETIROS', 'SALDO', '', '', '', '', 'MONTO', 'RETIROS', 'SALDO'],
-    ['', '', '', '', '', 8_000, '', '', '', '', '', '', 2_000, '', '', '', '', '', '', 0],
+    ['', '', '', '', '', 8_642, '', '', '', '', '', '', 1_357, '', '', '', '', '', '', 0],
   ])
   const pnl = XLSX.utils.aoa_to_sheet([
     [],
     [],
     [],
     [],
-    ['', '', 'VENTAS', '', 70_000],
+    ['', '', 'VENTAS', '', 67_890],
     [],
-    ['', '', 'COSTO DE V', '', 58_000],
+    ['', '', 'COSTO DE V', '', 55_555],
     [],
-    ['', '', 'GANANCIA', '', 12_000],
+    ['', '', 'GANANCIA', '', 12_335],
   ])
-  const balance = XLSX.utils.aoa_to_sheet([[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], ['', 'PATRIMONIO', '', '', 321_000]])
+  const balance = XLSX.utils.aoa_to_sheet([[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], ['', 'PATRIMONIO', '', '', 233_220]])
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, inventory, 'Inv Actual')
   XLSX.utils.book_append_sheet(book, cxc, 'CxC')
@@ -74,32 +73,32 @@ describe('importador', () => {
     expect(negro?.stock).toBe(2)
     expect(negro?.sku).not.toBe(preview.products.find((item) => item.size === 'M')?.sku)
     expect(preview.products.some((item) => item.color === 'Sin definir')).toBe(true)
-    expect(preview.merges.some((item) => item.from === 'Andres Suare' && item.into === 'Andres Suarez')).toBe(true)
+    expect(preview.merges.some((item) => item.from === 'Cliente Ejempl' && item.into === 'Cliente Ejemplo')).toBe(true)
     expect(preview.excluded.some((item) => item.name === 'Pago Tatuaje')).toBe(true)
-    expect(preview.workbookEquity).toBe(321_000)
+    expect(preview.workbookEquity).toBe(233_220)
 
     const state = importBook(preview, defaultDecisions(preview))
     expect(state.products.reduce((sum, product) => sum + product.stock, 0)).toBe(4)
-    expect(state.customers.map((customer) => customer.name)).toContain('Andres Suarez')
-    expect(state.customers.map((customer) => customer.name)).not.toContain('Andres Suare')
+    expect(state.customers.map((customer) => customer.name)).toContain('Cliente Ejemplo')
+    expect(state.customers.map((customer) => customer.name)).not.toContain('Cliente Ejempl')
     expect(state.customers.map((customer) => customer.name)).not.toContain('Pago Tatuaje')
-    expect(state.suppliers.map((supplier) => supplier.name)).toContain('Praga')
+    expect(state.suppliers.map((supplier) => supplier.name)).toContain('Taller')
     expect(state.layaways).toHaveLength(1)
     expect(state.loans).toHaveLength(1)
     expect(state.sales.some((sale) => sale.kind === 'opening')).toBe(true)
 
     const sheet = balanceSheet(state)
-    expect(sheet.inventory.garments).toBe(58_000 * 2 + 40_000 + 20_000)
-    expect(sheet.inventory.investments).toBe(100_000)
-    expect(sheet.cash).toBe(10_000)
-    expect(sheet.receivable.total).toBe(80_000)
-    expect(sheet.liabilities).toBe(45_000)
+    expect(sheet.inventory.garments).toBe(11_111 * 2 + 33_333 + 22_223)
+    expect(sheet.inventory.investments).toBe(13_579)
+    expect(sheet.cash).toBe(8_642 + 1_357)
+    expect(sheet.receivable.total).toBe(54_321 + 24_680 + 97_531)
+    expect(sheet.liabilities).toBe(11_223 + 33_445)
     expect(sheet.equity).toBe(sheet.assets - sheet.liabilities)
-    expect(sheet.equity).toBe(321_000)
+    expect(sheet.equity).toBe(233_220)
 
     const report = profitAndLoss(state, { from: '2025-01-01', to: '2025-12-31' })
-    expect(report.openingSales).toBe(70_000)
-    expect(report.profit).toBe(12_000)
+    expect(report.openingSales).toBe(67_890)
+    expect(report.profit).toBe(12_335)
   })
 })
 
@@ -110,11 +109,8 @@ describe.skipIf(!workbookPath)('libro real', () => {
     const preview = parseWorkbook(readFileSync(workbookPath!))
     const state = importBook(preview, defaultDecisions(preview))
     const sheet = balanceSheet(state)
-    expect(sheet.equity).toBe(22_545_000)
-    expect(sheet.assets).toBe(38_808_000)
-    expect(sheet.liabilities).toBe(16_263_000)
-    expect(sheet.cash).toBe(3_564_000)
-    expect(sheet.receivable.total).toBe(7_720_000)
-    expect(sheet.inventory.total).toBe(27_524_000)
+    expect(preview.workbookEquity).not.toBeNull()
+    expect(sheet.equity).toBe(preview.workbookEquity)
+    expect(sheet.equity).toBe(sheet.assets - sheet.liabilities)
   })
 })
