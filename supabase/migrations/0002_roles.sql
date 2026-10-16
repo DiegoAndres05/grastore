@@ -211,6 +211,21 @@ begin
 end;
 $$;
 
+create or replace function public.owner_exists()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where role_id = 'dueno'
+      and exists (select 1 from auth.users where auth.users.id = profiles.id)
+  );
+$$;
+
 create or replace function public.signup_open()
 returns boolean
 language sql
@@ -218,7 +233,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select not exists (select 1 from public.profiles where role_id = 'dueno');
+  select not public.owner_exists();
 $$;
 
 create or replace function public.zero_costs(rows jsonb)
@@ -591,7 +606,7 @@ declare
   provision public.provisions%rowtype;
 begin
   perform pg_advisory_xact_lock(845221);
-  if exists (select 1 from public.profiles where role_id = 'dueno') then
+  if public.owner_exists() then
     select * into provision from public.provisions where lower(email) = lower(coalesce(new.email, ''));
     if not found then
       raise exception 'El registro público está cerrado. El dueño crea los accesos.';
@@ -651,6 +666,7 @@ grant usage on schema public to authenticated, anon, service_role;
 grant all on all tables in schema public to service_role;
 grant all on all functions in schema public to service_role;
 
+revoke all on function public.owner_exists() from public, anon, authenticated;
 revoke all on function public.export_book() from public, anon, authenticated;
 revoke all on function public.replace_book(jsonb, integer) from public, anon, authenticated;
 revoke all on function public.redact_state(jsonb) from public, anon, authenticated;
@@ -698,3 +714,5 @@ begin
     end;
   end if;
 end $$;
+
+notify pgrst, 'reload schema';

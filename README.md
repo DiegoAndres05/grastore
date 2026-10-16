@@ -63,6 +63,30 @@ Un trabajador que llame la API no recibe costos, saldos de caja, gastos ni conta
 - Si entrar funciona pero guardar dice que falta la clave del servidor, falta `SUPABASE_SERVICE_ROLE_KEY` o no se redeployó.
 - En modo local cada navegador tiene su propio libro y entra como dueño.
 - En Supabase → Database → Publications, la tabla `book_signal` debe estar en `supabase_realtime`. El SQL ya la agrega.
+- Si el login dice que el registro está cerrado y en Authentication → Users no hay nadie, la pantalla antigua trataba un error de `signup_open()` como si ya hubiera dueño. Corre `supabase/migrations/0003_signup_open.sql` y vuelve a desplegar. Para ver el estado actual, en el SQL Editor:
+
+```sql
+select
+  (select count(*) from auth.users) as auth_users,
+  (select count(*) from public.profiles) as profiles,
+  (select count(*) from public.profiles where role_id = 'dueno') as duenos,
+  public.signup_open() as signup_open;
+
+select
+  has_function_privilege('anon', 'public.signup_open()', 'execute') as anon_can_call,
+  has_schema_privilege('anon', 'public', 'usage') as anon_can_use_schema;
+
+select id, email, role_id, display_name
+from public.profiles
+order by created_at;
+
+begin;
+set local role anon;
+select public.signup_open() as signup_open_as_anon;
+rollback;
+```
+
+`signup_open` y `signup_open_as_anon` tienen que ser `true` cuando no hay dueño. Si el segundo falla con `permission denied`, falta el `grant` de `0003`.
 
 ## Importar el Excel
 

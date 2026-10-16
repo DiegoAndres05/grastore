@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/cloud'
+import { interpretSignup, type SignupCheck } from '../lib/signup'
 import { Button, Field, FormError, inputClass } from '../components/ui'
+
+type SignupView = SignupCheck | { status: 'checking' }
 
 export function Login() {
   const [mode, setMode] = useState<'entrar' | 'crear'>('entrar')
@@ -10,12 +13,24 @@ export function Login() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
-  const [openSignup, setOpenSignup] = useState(false)
+  const [signup, setSignup] = useState<SignupView>({ status: 'checking' })
+
+  async function refreshSignup() {
+    setSignup({ status: 'checking' })
+    const db = supabase()
+    if (!db) {
+      setSignup({ status: 'error', message: 'Este sitio no tiene la configuración de Supabase.' })
+      setMode('entrar')
+      return
+    }
+    const { data, error: checkError } = await db.rpc('signup_open')
+    const next = interpretSignup(data, checkError?.message)
+    setSignup(next)
+    if (next.status !== 'open') setMode('entrar')
+  }
 
   useEffect(() => {
-    const db = supabase()
-    if (!db) return
-    void db.rpc('signup_open').then(({ data }) => setOpenSignup(Boolean(data)))
+    void refreshSignup()
   }, [])
 
   useEffect(() => {
@@ -60,10 +75,20 @@ export function Login() {
         <p className="mt-4 text-center text-[11px] tracking-[0.22em] text-brass uppercase">Cartagena</p>
         <h1 className="mt-3 text-center font-serif text-3xl">{mode === 'entrar' ? 'Entrar al libro' : 'Crear el acceso del dueño'}</h1>
         <p className="mt-2 text-center text-sm text-muted">
-          {openSignup
-            ? 'La primera cuenta queda como dueño del negocio. Después solo esa persona crea trabajadores y administradores.'
-            : 'El registro público ya está cerrado. Entra con el correo que te dio el dueño.'}
+          {signup.status === 'checking'
+            ? 'Comprobando si ya hay un dueño…'
+            : signup.status === 'open'
+              ? 'La primera cuenta queda como dueño del negocio. Después solo esa persona crea trabajadores y administradores.'
+              : signup.status === 'closed'
+                ? 'El registro público ya está cerrado. Entra con el correo que te dio el dueño.'
+                : 'No pude comprobar si el registro está abierto. No asumas que ya hay un dueño.'}
         </p>
+        {signup.status === 'error' ? (
+          <div className="mt-4 space-y-3">
+            <FormError>{signup.message}</FormError>
+            <Button className="w-full" variant="ghost" type="button" onClick={() => void refreshSignup()}>Reintentar</Button>
+          </div>
+        ) : null}
         <form
           className="mt-6 space-y-4"
           onSubmit={(event) => {
@@ -88,7 +113,7 @@ export function Login() {
             {busy ? 'Espera…' : mode === 'entrar' ? 'Entrar' : 'Crear cuenta'}
           </Button>
         </form>
-        {openSignup ? (
+        {signup.status === 'open' ? (
           <button type="button" className="mt-4 w-full text-center text-sm text-brass-deep" onClick={() => setMode(mode === 'entrar' ? 'crear' : 'entrar')}>
             {mode === 'entrar' ? 'Crear la cuenta del dueño' : 'Ya tengo cuenta'}
           </button>
