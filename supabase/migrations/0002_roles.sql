@@ -1,6 +1,8 @@
 -- Roles, permisos y libro en tablas.
--- Corre en el SQL Editor después de 0001_init.sql. Sirve con las tablas vacías
--- y, si ya hay una fila en books, la pasa a las tablas nuevas.
+-- Corre en el SQL Editor después de 0001_init.sql. Se puede volver a ejecutar:
+-- si el intento anterior se cortó a la mitad, los create/alter de abajo no duplican nada.
+-- Sirve con las tablas vacías y, si ya hay una fila en books y el libro nuevo sigue vacío,
+-- la pasa a las tablas nuevas. No vuelve a copiarla si ya hay datos.
 -- La clave service_role no se usa en el navegador: solo en las funciones de Vercel.
 
 create table if not exists public.roles (
@@ -299,7 +301,7 @@ begin
 end;
 $$;
 
-create or replace function public.redact_state(full jsonb)
+create or replace function public.redact_state(full_state jsonb)
 returns jsonb
 language plpgsql
 stable
@@ -307,7 +309,7 @@ security definer
 set search_path = public
 as $$
 declare
-  state jsonb := coalesce(full, '{}'::jsonb);
+  state jsonb := coalesce(full_state, '{}'::jsonb);
   see_costs boolean := public.has_perm('products.costs');
   see_cash boolean := public.has_perm('cash.read');
   see_expenses boolean := public.has_perm('expenses.read') or public.has_perm('expenses.write');
@@ -534,16 +536,47 @@ begin
 end;
 $$;
 
+-- Solo la primera vez: si el libro nuevo ya tiene filas o la versión avanzó,
+-- volver a correr este archivo no pisa lo que se escribió después.
 do $$
 declare
   legacy jsonb;
+  meta_origin text;
+  meta_version integer;
+  has_rows boolean;
 begin
-  if to_regclass('public.books') is not null then
-    select data into legacy from public.books where id = 'main';
-    if legacy is not null then
-      perform public.replace_book(legacy, -1);
-    end if;
+  if to_regclass('public.books') is null then
+    return;
   end if;
+  select data into legacy from public.books where id = 'main';
+  if legacy is null then
+    return;
+  end if;
+  select origin, version into meta_origin, meta_version from public.book_meta where id = 'main';
+  select exists (
+    select 1 from public.products
+    union all select 1 from public.customers
+    union all select 1 from public.suppliers
+    union all select 1 from public.sales
+    union all select 1 from public.purchases
+    union all select 1 from public.collections
+    union all select 1 from public.accounts
+    union all select 1 from public.movements
+    union all select 1 from public.expenses
+    union all select 1 from public.payables
+    union all select 1 from public.payable_payments
+    union all select 1 from public.capital_events
+    union all select 1 from public.loans
+    union all select 1 from public.loan_payments
+    union all select 1 from public.layaways
+    union all select 1 from public.returns
+    union all select 1 from public.adjustments
+    union all select 1 from public.investments
+  ) into has_rows;
+  if has_rows or meta_version is distinct from 1 or meta_origin is distinct from 'empty' then
+    return;
+  end if;
+  perform public.replace_book(legacy, -1);
 end $$;
 
 create or replace function public.handle_new_user()
