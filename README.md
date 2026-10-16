@@ -38,7 +38,7 @@ Hace falta una cuenta en [Supabase](https://supabase.com) y acceso al proyecto d
    - `VITE_SUPABASE_ANON_KEY` = la anon key
 6. Redeploy el proyecto (Deployments → el último → Redeploy). Vite mete esas variables en el momento de construir; no basta con guardarlas.
 7. Abre https://grastore.vercel.app. Crea la cuenta de Javier y la de Emeli con **Crear una cuenta nueva** (nombre, correo y clave de al menos 6 caracteres). Las dos ven el mismo libro.
-8. En **Importar**, sube el Excel de contabilidad. Revisa inventario, nombres y cartera. Al confirmar, el patrimonio debe quedar en **22.545.000** si no cambias los saldos, las deudas ni las inversiones. Descarga antes un respaldo JSON por si acaso.
+8. En **Importar**, sube el Excel de contabilidad. Revisa inventario, nombres y cartera. Al confirmar, el patrimonio debe coincidir con la celda PATRIMONIO de la hoja Balance, si no cambias los saldos, las deudas ni las inversiones. Descarga antes un respaldo JSON por si acaso.
 
 En local, copia `.env.example` a `.env`, pon las mismas dos variables y corre `npm run dev`.
 
@@ -55,33 +55,17 @@ El asistente lee las seis hojas (`Inv Actual`, `CxC`, `CxP`, `Neq o Efe`, `Perd 
 | Del Excel | En GraStore |
 |---|---|
 | Prendas con ventas = 0 | Fichas con existencias. El código repetido gana un sufijo de color y talla. El nombre se arma con el tipo. |
-| Colores que no son colores (`P`, `ECONOMIC`, `JEAN`…) | Quedan en «Sin definir» para corregirlos en la vista previa. `ROJA` y `ROJO` se unen. |
-| Compradores y nombres de CxC | Clientes, sin espacios de más. Los parecidos (`Andres Suare` / `Andres Suarez`) se proponen para unir. `PAGO TATUAJE`, `PAUTA`, `PRESTAMO` y similares no entran como personas. |
+| Colores que no son colores (una nota, una tela, una marca) | Quedan en «Sin definir» para corregirlos en la vista previa. `ROJA` y `ROJO` se unen. |
+| Compradores y nombres de CxC | Clientes, sin espacios de más. Los parecidos (`Cliente Ejempl` / `Cliente Ejemplo`) se proponen para unir. `PAGO TATUAJE`, `PAUTA`, `PRESTAMO` y similares no entran como personas. |
 | Saldo de CxC | Venta a crédito de saldo inicial, con el corte del 15 o del 30. No baja inventario. |
 | Plan separe | Apartado con el saldo. El Excel no dice la prenda, así que no reserva stock. |
 | Préstamo | Cuenta por cobrar aparte de las ventas. |
 | Filas `INVERSION` y `SALDO A FAVOR` | Proveedor por nombre e inversión sin detalle. Entran al inventario del balance, separadas de las prendas. |
 | Último saldo de Nequi, efectivo y Bancolombia | Saldo inicial de cada cuenta. No se copian los mil movimientos. |
 | CxP | Deudas. `INYEC` queda como capital, `SUELDO` como sueldo, `LUZ` como servicio. |
-| Perd y Gan | Opcional. Ventas y costo históricos, con fecha 18 abr 2025 para no mezclarlos con el mes en curso. |
+| Perd y Gan | Opcional. Ventas y costo históricos, con una fecha anterior al mes en curso para no mezclarlos con lo que se venda ahora. |
 
-El balance del libro usa el inventario de la celda K, que **suma las prendas en existencia y las filas de inversión**. Esas inversiones no son prendas contadas una a una. GraStore las muestra aparte; la suma es la que cuadra con el Excel.
-
-Con el libro de octubre de 2026, sin cambiar decisiones, la importación da:
-
-| | |
-|---|---|
-| Efectivo | 212.000 |
-| Bancolombia | 0 |
-| Nequi | 3.352.000 |
-| Caja | 3.564.000 |
-| Cartera (crédito + plan separe + préstamos) | 7.720.000 |
-| Prendas a costo | 19.565.000 |
-| Inversión sin detalle | 7.959.000 |
-| Inventario | 27.524.000 |
-| Activos | 38.808.000 |
-| Por pagar | 16.263.000 |
-| Patrimonio | 22.545.000 |
+El balance del libro usa el inventario de la celda K, que **suma las prendas en existencia y las filas de inversión**. Esas inversiones no son prendas contadas una a una. GraStore las muestra aparte; la suma es la que debe coincidir con el patrimonio de la hoja Balance.
 
 ## Desarrollo
 

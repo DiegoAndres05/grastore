@@ -398,7 +398,7 @@ export function parseWorkbook(data: ArrayBuffer | Uint8Array): WorkbookPreview {
   const merges = suggestMerges(people)
 
   const suppliers = [...new Set(investments.map((item) => item.supplier).filter(Boolean))]
-  if (products.some((item) => item.colorReview)) warnings.push('Hay colores que no son colores (P, ECONOMIC, JEAN…). Quedaron como "Sin definir" para que los corrijas.')
+  if (products.some((item) => item.colorReview)) warnings.push('Hay colores que no son colores. Quedaron como "Sin definir" para que los corrijas.')
   if (products.some((item) => item.sizeReview)) warnings.push('Hay tallas que parecen códigos. Quedaron en U para que las corrijas.')
   if (merges.length) warnings.push('Hay nombres parecidos. Revisa cuáles son la misma persona antes de importar.')
 
