@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Shell } from './components/Shell'
 import { readPage, type PageId } from './lib/nav'
+import { Balance } from './pages/Balance'
+import { Cash } from './pages/Cash'
 import { Customers } from './pages/Customers'
 import { Dashboard } from './pages/Dashboard'
+import { Payables } from './pages/Payables'
 import { Pos } from './pages/Pos'
 import { Products } from './pages/Products'
 import { Purchases } from './pages/Purchases'
@@ -18,7 +21,10 @@ const titles: Record<PageId, string> = {
   estadisticas: 'Estadísticas',
   productos: 'Prendas',
   compras: 'Compras',
+  caja: 'Caja',
   cobrar: 'Cartera',
+  pagar: 'Por pagar',
+  balance: 'Balance',
   clientes: 'Clientes',
   proveedores: 'Proveedores',
 }
@@ -81,7 +87,10 @@ export default function App() {
           {page === 'estadisticas' && <Statistics />}
           {page === 'productos' && <Products />}
           {page === 'compras' && <Purchases />}
+          {page === 'caja' && <Cash />}
           {page === 'cobrar' && <Receivables />}
+          {page === 'pagar' && <Payables />}
+          {page === 'balance' && <Balance />}
           {page === 'clientes' && <Customers />}
           {page === 'proveedores' && <Suppliers />}
         </div>

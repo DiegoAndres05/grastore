@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { Button, Empty, Field, FormError, Modal, PageHeader, inputClass } from '../components/ui'
+import { ACCOUNT_LABEL, ACCOUNTS } from '../lib/books'
 import { CATEGORIES } from '../lib/catalog'
 import { dateTime, money } from '../lib/format'
+import type { CashAccount } from '../types'
 import { useStore } from '../store'
 
 type DraftLine = { key: string; productId: string; qty: number; cost: number }
@@ -17,6 +19,9 @@ export function Purchases() {
   const [supplierId, setSupplierId] = useState('')
   const [note, setNote] = useState('')
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
+  const [paidNow, setPaidNow] = useState(true)
+  const [paid, setPaid] = useState(0)
+  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [error, setError] = useState('')
   const lock = useRef(false)
 
@@ -25,6 +30,9 @@ export function Purchases() {
     setSupplierId(state.suppliers[0]?.id ?? '')
     setNote('')
     setLines([emptyLine()])
+    setPaidNow(true)
+    setPaid(0)
+    setAccount('efectivo')
     setError('')
     setOpen(true)
   }
@@ -34,7 +42,7 @@ export function Purchases() {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, productId, cost: product?.cost ?? line.cost } : line)))
   }
 
-  const total = lines.reduce((sum, line) => sum + line.qty * line.cost, 0)
+  const total = lines.filter((line) => line.productId).reduce((sum, line) => sum + line.qty * line.cost, 0)
 
   function save() {
     if (lock.current) return
@@ -43,13 +51,15 @@ export function Purchases() {
       supplierId,
       note,
       lines: lines.filter((line) => line.productId).map((line) => ({ productId: line.productId, qty: line.qty, cost: line.cost })),
+      paid: paidNow ? total : Math.min(paid, total),
+      account: (paidNow || paid > 0) ? account : null,
     })
     if (!result.ok) {
       lock.current = false
       setError(result.error)
       return
     }
-    toast(`${result.data.number} recibida. El inventario ya quedó actualizado.`)
+    toast(result.data.balance > 0 ? `${result.data.number} recibida. Quedó por pagar ${money(result.data.balance)}.` : `${result.data.number} recibida y pagada.`)
     setOpen(false)
   }
 
@@ -74,7 +84,7 @@ export function Purchases() {
                   <div className="min-w-0">
                     <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{item.number} · {dateTime(item.date)}</p>
                     <p className="mt-1 font-serif text-xl">{item.supplierName}</p>
-                    <p className="mt-1 text-sm text-muted">{units} unidades{item.note ? ` · ${item.note}` : ''}</p>
+                    <p className="mt-1 text-sm text-muted">{units} unidades{item.balance > 0 ? ` · por pagar ${money(item.balance)}` : ''}{item.note ? ` · ${item.note}` : ''}</p>
                   </div>
                   <p className="shrink-0 font-serif text-xl tabular-nums">{money(item.total)}</p>
                 </button>
@@ -163,6 +173,22 @@ export function Purchases() {
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Total de la compra</p>
             <p className="font-serif text-3xl tabular-nums">{money(total)}</p>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" className={`rounded-xl border px-3 py-2 text-sm ${paidNow ? 'border-ink bg-ink text-paper' : 'border-line'}`} onClick={() => setPaidNow(true)}>Pagada ahora</button>
+            <button type="button" className={`rounded-xl border px-3 py-2 text-sm ${paidNow ? 'border-line' : 'border-ink bg-ink text-paper'}`} onClick={() => setPaidNow(false)}>Queda fiada</button>
+          </div>
+          {paidNow ? null : (
+            <Field label="Abono ahora" hint={`Queda por pagar ${money(Math.max(0, total - paid))}`}>
+              <input className={inputClass} inputMode="numeric" value={paid ? new Intl.NumberFormat('es-CO').format(paid) : ''} placeholder="0" onChange={(event) => setPaid(Number(event.target.value.replace(/\D/g, '')) || 0)} />
+            </Field>
+          )}
+          {paidNow || paid > 0 ? (
+            <Field label="Sale de">
+              <select className={inputClass} value={account} onChange={(event) => setAccount(event.target.value as CashAccount)}>
+                {ACCOUNTS.map((item) => <option key={item} value={item}>{ACCOUNT_LABEL[item]}</option>)}
+              </select>
+            </Field>
+          ) : null}
           <FormError>{error}</FormError>
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>

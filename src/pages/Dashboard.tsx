@@ -1,18 +1,21 @@
 import { useState, type PointerEvent } from 'react'
 import { swatch } from '../lib/catalog'
-import { greeting, isSameDay, isSameMonth, longDate, money, percent, relativeDay } from '../lib/format'
+import { balanceSheet, periodResult } from '../lib/books'
+import { greeting, isSameDay, longDate, money, percent, relativeDay } from '../lib/format'
 import { go } from '../lib/nav'
 import { useStore } from '../store'
 import { CountUp } from '../components/motion'
 import { Button } from '../components/ui'
 
-function Trend({ sales }: { sales: { date: string; total: number }[] }) {
+function Trend({ sales }: { sales: { date: string; total: number; returnedAt: string | null }[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const points = Array.from({ length: 14 }, (_, index) => {
     const date = new Date()
     date.setHours(12, 0, 0, 0)
     date.setDate(date.getDate() - (13 - index))
-    const total = sales.filter((sale) => isSameDay(sale.date, date)).reduce((sum, sale) => sum + sale.total, 0)
+    const issued = sales.filter((sale) => isSameDay(sale.date, date)).reduce((sum, sale) => sum + sale.total, 0)
+    const reversed = sales.filter((sale) => sale.returnedAt && isSameDay(sale.returnedAt, date)).reduce((sum, sale) => sum + sale.total, 0)
+    const total = issued - reversed
     const label = new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short' }).format(date)
     return { label, total }
   })
@@ -85,25 +88,25 @@ function Trend({ sales }: { sales: { date: string; total: number }[] }) {
 
 export function Dashboard() {
   const { state } = useStore()
-  const todaySales = state.sales.filter((sale) => isSameDay(sale.date))
-  const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0)
-  const todayUnits = todaySales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0)
-  const monthSales = state.sales.filter((sale) => isSameMonth(sale.date))
-  const monthTotal = monthSales.reduce((sum, sale) => sum + sale.total, 0)
-  const monthCost = monthSales.reduce((sum, sale) => sum + sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0)
-  const monthMargin = monthTotal - monthCost
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+  const today = periodResult(state, todayStart, todayEnd)
+  const month = periodResult(state, monthStart, monthEnd)
+  const books = balanceSheet(state)
   const stock = state.products.filter((product) => product.active)
-  const stockCost = stock.reduce((sum, product) => sum + product.stock * product.cost, 0)
   const stockRetail = stock.reduce((sum, product) => sum + product.stock * product.price, 0)
   const low = stock.filter((product) => product.stock <= product.minStock).sort((a, b) => a.stock - b.stock)
-  const open = state.sales.filter((sale) => sale.balance > 0).sort((a, b) => a.date.localeCompare(b.date))
-  const receivable = open.reduce((sum, sale) => sum + sale.balance, 0)
-  const average = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0
+  const open = state.sales.filter((sale) => sale.status === 'activa' && sale.balance > 0).sort((a, b) => a.date.localeCompare(b.date))
+  const average = today.tickets ? Math.round(today.sales / today.tickets) : 0
 
   const stats = [
-    { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
-    { label: 'Margen del mes', value: monthMargin, kind: 'money' as const, hint: monthTotal ? percent(monthMargin / monthTotal) : 'Sin ventas' },
-    { label: 'Inventario', value: stockCost, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
+    { label: 'Mes en curso', value: month.sales, kind: 'money' as const, hint: `${month.tickets} ventas` },
+    { label: 'Margen del mes', value: month.gross, kind: 'money' as const, hint: month.sales ? percent(month.gross / month.sales) : 'Sin ventas' },
+    { label: 'Plata real', value: books.cash, kind: 'money' as const, hint: 'Nequi, efectivo, banco y tarjeta' },
+    { label: 'Inventario', value: books.inventory, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
     { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
   ]
 
@@ -113,7 +116,7 @@ export function Dashboard() {
         <div>
           <p className="text-[11px] tracking-[0.22em] text-brass uppercase">La grasa que nunca falla · Cartagena</p>
           <h1 className="mt-3 font-serif text-4xl leading-none tracking-wide uppercase sm:text-6xl">{greeting()}</h1>
-          <p className="mt-2 text-sm text-muted">{longDate()} · {todayUnits} {todayUnits === 1 ? 'prenda salida hoy' : 'prendas salidas hoy'}</p>
+          <p className="mt-2 text-sm text-muted">{longDate()} · {today.units} {today.units === 1 ? 'prenda salida hoy' : 'prendas salidas hoy'}</p>
         </div>
         <Button onClick={() => go('vender')}>Nueva venta</Button>
       </header>
@@ -122,9 +125,9 @@ export function Dashboard() {
         <section className="rounded-3xl border border-line bg-card p-6 sm:p-8 lg:col-span-8">
           <div className="flex items-start justify-between gap-4">
             <p className="text-[11px] tracking-[0.18em] text-muted uppercase">Ventas de hoy</p>
-            <p className="text-sm text-muted">{todaySales.length} {todaySales.length === 1 ? 'ticket' : 'tickets'}</p>
+            <p className="text-sm text-muted">{today.tickets} {today.tickets === 1 ? 'ticket' : 'tickets'}</p>
           </div>
-          <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={todayTotal} /></p>
+          <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={today.sales} /></p>
           <p className="mt-2 text-sm text-muted">Ticket promedio {money(average)}</p>
           <div className="mt-8">
             <Trend sales={state.sales} />
@@ -133,7 +136,7 @@ export function Dashboard() {
 
         <section className="flex flex-col rounded-3xl bg-brass p-6 text-espresso sm:p-8 lg:col-span-4">
           <p className="text-[11px] tracking-[0.18em] uppercase">Por cobrar</p>
-          <p className="mt-4 font-serif text-4xl tracking-wide tabular-nums sm:text-5xl"><CountUp value={receivable} /></p>
+          <p className="mt-4 font-serif text-4xl tracking-wide tabular-nums sm:text-5xl"><CountUp value={books.receivable} /></p>
           <p className="mt-2 text-sm">{open.length} {open.length === 1 ? 'cuenta abierta' : 'cuentas abiertas'}</p>
           <ul className="mt-8 flex-1 space-y-4">
             {open.slice(0, 4).map((sale) => (
@@ -153,7 +156,7 @@ export function Dashboard() {
         </section>
       </div>
 
-      <section className="mt-5 grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mt-5 grid border-y border-line sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((stat, index) => (
           <div key={stat.label} className={`px-1 py-6 sm:px-6 ${index === 0 ? 'sm:pl-1' : 'lg:border-l lg:border-line'}`}>
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{stat.label}</p>

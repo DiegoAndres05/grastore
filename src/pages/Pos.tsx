@@ -1,8 +1,9 @@
 import { Minus, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ACCOUNT_LABEL } from '../lib/books'
 import { CATEGORIES, METHOD_LABEL, norm, swatch } from '../lib/catalog'
 import { money } from '../lib/format'
-import type { Customer, PayMethod, Product, Sale } from '../types'
+import type { CashAccount, Customer, PayMethod, Product, Sale } from '../types'
 import { useStore } from '../store'
 import { Button, FormError, Modal } from '../components/ui'
 
@@ -19,6 +20,7 @@ export function Pos() {
   const [customerId, setCustomerId] = useState('')
   const [discount, setDiscount] = useState(0)
   const [method, setMethod] = useState<PayMethod>('efectivo')
+  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [paid, setPaid] = useState(0)
   const [tendered, setTendered] = useState(0)
   const [note, setNote] = useState('')
@@ -110,6 +112,7 @@ export function Pos() {
       customerId: customerId || null,
       discount: safeDiscount,
       method,
+      account,
       paid: method === 'credito' ? Math.min(paid, total) : total,
       tendered,
       note,
@@ -156,6 +159,8 @@ export function Pos() {
       setDiscount={setDiscount}
       method={method}
       setMethod={setMethod}
+      account={account}
+      setAccount={setAccount}
       tendered={tendered}
       setTendered={setTendered}
       paid={paid}
@@ -286,7 +291,7 @@ export function Pos() {
       <Modal open={receipt != null} kicker="Venta registrada" title={receipt?.number ?? ''} onClose={() => setReceipt(null)}>
         {receipt ? (
           <div>
-            <p className="text-sm text-muted">{receipt.customerName} · {METHOD_LABEL[receipt.method]}</p>
+            <p className="text-sm text-muted">{receipt.customerName} · {METHOD_LABEL[receipt.method]}{receipt.account && receipt.paid > 0 ? ` · ${ACCOUNT_LABEL[receipt.account]} ${money(receipt.paid)}` : ''}</p>
             <ul className="mt-5 space-y-2">
               {receipt.lines.map((line) => (
                 <li key={line.productId} className="flex items-start justify-between gap-3 text-sm">
@@ -324,6 +329,8 @@ function TicketBody({
   setDiscount,
   method,
   setMethod,
+  account,
+  setAccount,
   tendered,
   setTendered,
   paid,
@@ -349,6 +356,8 @@ function TicketBody({
   setDiscount: (value: number) => void
   method: PayMethod
   setMethod: (value: PayMethod) => void
+  account: CashAccount
+  setAccount: (value: CashAccount) => void
   tendered: number
   setTendered: (value: number) => void
   paid: number
@@ -417,12 +426,27 @@ function TicketBody({
             key={item}
             type="button"
             className={`rounded-xl border px-2 py-2 text-center text-sm leading-tight ${method === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`}
-            onClick={() => setMethod(item)}
+            onClick={() => {
+              setMethod(item)
+              if (item === 'efectivo') setAccount('efectivo')
+              if (item === 'tarjeta') setAccount('tarjeta')
+              if (item === 'transferencia') setAccount('nequi')
+              if (item === 'credito') setAccount('efectivo')
+            }}
           >
             {METHOD_LABEL[item]}
           </button>
         ))}
       </div>
+      {method === 'transferencia' ? (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {(['nequi', 'bancolombia'] as const).map((item) => (
+            <button key={item} type="button" className={`rounded-xl border px-2 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`} onClick={() => setAccount(item)}>
+              {ACCOUNT_LABEL[item]}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {method === 'efectivo' ? (
         <div className="mt-4">
           <label className="text-[11px] tracking-[0.16em] text-muted uppercase">Efectivo recibido</label>
@@ -449,6 +473,15 @@ function TicketBody({
             Queda a crédito {money(creditDue)}
             {customer ? ` · cupo libre ${money(Math.max(0, room))}` : ''}
           </p>
+          {paid > 0 ? (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {(['efectivo', 'nequi', 'bancolombia', 'tarjeta'] as const).map((item) => (
+                <button key={item} type="button" className={`rounded-xl border px-2 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`} onClick={() => setAccount(item)}>
+                  {ACCOUNT_LABEL[item]}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Nota</label>

@@ -1,8 +1,10 @@
 import {
+  Banknote,
   LayoutDashboard,
   Menu,
   PackagePlus,
   Receipt,
+  Scale,
   ChartColumn,
   Shirt,
   ShoppingBag,
@@ -27,7 +29,10 @@ const floor: { id: PageId; label: string; icon: LucideIcon }[] = [
 
 const books: { id: PageId; label: string; icon: LucideIcon }[] = [
   { id: 'compras', label: 'Compras', icon: PackagePlus },
+  { id: 'caja', label: 'Caja', icon: Banknote },
   { id: 'cobrar', label: 'Cartera', icon: Wallet },
+  { id: 'pagar', label: 'Por pagar', icon: Receipt },
+  { id: 'balance', label: 'Balance', icon: Scale },
   { id: 'clientes', label: 'Clientes', icon: Users },
   { id: 'proveedores', label: 'Proveedores', icon: Truck },
 ]
@@ -35,11 +40,13 @@ const books: { id: PageId; label: string; icon: LucideIcon }[] = [
 function SideNav({
   page,
   openCount,
+  dueCount,
   onNavigate,
   onReset,
 }: {
   page: PageId
   openCount: number
+  dueCount: number
   onNavigate: () => void
   onReset: () => void
 }) {
@@ -61,6 +68,9 @@ function SideNav({
         <span>{entry.label}</span>
         {entry.id === 'cobrar' && openCount > 0 ? (
           <span className={`ml-auto text-[11px] tabular-nums ${active ? 'text-espresso' : 'text-brass'}`}>{openCount}</span>
+        ) : null}
+        {entry.id === 'pagar' && dueCount > 0 ? (
+          <span className={`ml-auto text-[11px] tabular-nums ${active ? 'text-espresso' : 'text-brass'}`}>{dueCount}</span>
         ) : null}
       </button>
     )
@@ -92,12 +102,13 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
   const [menu, setMenu] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [splash, setSplash] = useState<string | null>(null)
-  const openCount = state.sales.filter((sale) => sale.balance > 0).length
+  const openCount = state.sales.filter((sale) => sale.status === 'activa' && sale.balance > 0).length
+  const dueCount = state.payables.filter((payable) => payable.balance > 0).length
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="aside-in sticky top-0 hidden h-screen lg:block">
-        <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => setConfirm(true)} />
+        <SideNav page={page} openCount={openCount} dueCount={dueCount} onNavigate={() => setMenu(false)} onReset={() => setConfirm(true)} />
       </aside>
       <div className={`fixed inset-0 z-40 lg:hidden ${menu ? '' : 'pointer-events-none'}`} inert={menu ? undefined : true}>
         <button
@@ -108,7 +119,7 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
           onClick={() => setMenu(false)}
         />
         <div className={`absolute inset-y-0 left-0 w-[240px] ${menu ? 'menu-drawer' : '-translate-x-[105%]'}`}>
-          <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} />
+          <SideNav page={page} openCount={openCount} dueCount={dueCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} />
         </div>
       </div>
       <div className="min-w-0">

@@ -214,16 +214,16 @@ export function Products() {
             <input className={inputClass} inputMode="numeric" value={form.minStock} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
           </Field>
           <Field label="Costo">
-            <MoneyInput value={form.cost} onChange={(cost) => setForm({ ...form, cost })} />
+            {editing ? <input className={inputClass} value={new Intl.NumberFormat('es-CO').format(form.cost)} readOnly /> : <MoneyInput value={form.cost} onChange={(cost) => setForm({ ...form, cost })} />}
           </Field>
           <Field label="Precio de venta" hint={belowCost ? 'Se vende por debajo del costo.' : undefined}>
             <MoneyInput value={form.price} onChange={(price) => setForm({ ...form, price })} />
           </Field>
           <Field label="Existencias">
-            <input className={inputClass} inputMode="numeric" value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
+            <input className={inputClass} inputMode="numeric" readOnly={editing != null} value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
           </Field>
         </div>
-        <p className="mt-3 text-xs text-muted">Para una entrada formal de mercancía, regístrala en Compras: ahí el costo se promedia y el stock sube solo.</p>
+        <p className="mt-3 text-xs text-muted">{editing ? 'El precio sí se puede ajustar. Las unidades entran por Compras y salen por Ventas.' : 'Las existencias iniciales quedan como apertura de inventario. Las siguientes entradas van por Compras.'}</p>
         <FormError>{error}</FormError>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>

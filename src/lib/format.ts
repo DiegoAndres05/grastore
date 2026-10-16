@@ -67,6 +67,7 @@ export function percent(ratio: number) {
 }
 
 export function saleStatus(sale: Sale): { label: string; tone: 'ok' | 'warn' | 'danger' } {
+  if (sale.status === 'devuelta') return { label: 'Devuelta', tone: 'danger' }
   if (sale.balance <= 0) return { label: 'Pagada', tone: 'ok' }
   if (sale.paid > 0) return { label: 'Parcial', tone: 'warn' }
   return { label: 'Pendiente', tone: 'danger' }

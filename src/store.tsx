@@ -1,27 +1,39 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createContext, useContext } from 'react'
-import { createSeed } from './data/seed'
+import { createEmpty, createSeed } from './data/seed'
+import { normalizeState } from './lib/books'
 import {
   applyCheckout,
   applyCollection,
   applyCustomer,
+  applyExpense,
+  applyOpening,
+  applyPayable,
+  applyPayablePayment,
   applyProduct,
   applyProductActive,
   applyPurchase,
   applyRemoveCustomer,
   applyRemoveSupplier,
+  applyReturn,
   applySupplier,
+  applyTransfer,
   type CheckoutInput,
   type CollectionInput,
   type CustomerInput,
+  type ExpenseInput,
+  type OpeningInput,
+  type PayableInput,
+  type PayablePaymentInput,
   type ProductInput,
   type PurchaseInput,
   type Result,
   type SupplierInput,
+  type TransferInput,
 } from './lib/logic'
-import type { Collection, Customer, Product, Purchase, Sale, State, Supplier } from './types'
+import type { Collection, Customer, Payable, Product, Purchase, Sale, State, Supplier } from './types'
 
-const STORAGE_KEY = 'grastore.v6'
+const STORAGE_KEY = 'grastore.v8'
 
 type Toast = { id: string; text: string; tone: 'ok' | 'warn' }
 
@@ -38,23 +50,32 @@ type StoreApi = {
   removeCustomer: (id: string) => Result<true>
   saveSupplier: (input: SupplierInput, id?: string) => Result<Supplier>
   removeSupplier: (id: string) => Result<true>
+  returnSale: (id: string) => Result<Sale>
+  openBalance: (input: OpeningInput) => Result<true>
+  recordExpense: (input: ExpenseInput) => Result<true>
+  transfer: (input: TransferInput) => Result<true>
+  savePayable: (input: PayableInput) => Result<Payable>
+  payPayable: (input: PayablePaymentInput) => Result<true>
   resetDemo: () => void
 }
 
 const StoreContext = createContext<StoreApi | null>(null)
 
-function load(): State {
+function readStored(key: string): State | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return createSeed()
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
     const parsed = JSON.parse(raw) as { version?: number; state?: State }
-    if (parsed.version === 6 && parsed.state && Array.isArray(parsed.state.products) && Array.isArray(parsed.state.sales)) {
-      return parsed.state
-    }
+    if (!parsed.state || !Array.isArray(parsed.state.products) || !Array.isArray(parsed.state.sales)) return null
+    if (parsed.version !== 8) return null
+    return normalizeState(parsed.state)
   } catch {
-    return createSeed()
+    return null
   }
-  return createSeed()
+}
+
+function load(): State {
+  return readStored(STORAGE_KEY) ?? createEmpty()
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -67,7 +88,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [state])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 6, state }))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 8, state }))
   }, [state])
 
   function commit(next: State) {
@@ -134,6 +155,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     removeSupplier(id) {
       const applied = applyRemoveSupplier(stateRef.current, id)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: true }
+    },
+    returnSale(id) {
+      const applied = applyReturn(stateRef.current, id)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: applied.data.sale }
+    },
+    openBalance(input) {
+      const applied = applyOpening(stateRef.current, input)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: true }
+    },
+    recordExpense(input) {
+      const applied = applyExpense(stateRef.current, input)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: true }
+    },
+    transfer(input) {
+      const applied = applyTransfer(stateRef.current, input)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: true }
+    },
+    savePayable(input) {
+      const applied = applyPayable(stateRef.current, input)
+      if (!applied.ok) return applied
+      commit(applied.data.state)
+      return { ok: true, data: applied.data.payable }
+    },
+    payPayable(input) {
+      const applied = applyPayablePayment(stateRef.current, input)
       if (!applied.ok) return applied
       commit(applied.data.state)
       return { ok: true, data: true }

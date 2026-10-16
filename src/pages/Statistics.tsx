@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type PointerEvent } from 'react'
 import { CountUp } from '../components/motion'
 import { PageHeader } from '../components/ui'
-import { METHOD_LABEL } from '../lib/catalog'
 import { money, percent } from '../lib/format'
-import { byCategory, byMethod, defaultSpan, rangeLabel, series, spanOptions, topProducts, type Grain } from '../lib/stats'
+import { ACCOUNT_LABEL, collectedByAccount } from '../lib/books'
+import { byCategory, defaultSpan, rangeLabel, series, spanOptions, topProducts, type Grain } from '../lib/stats'
 import { useStore } from '../store'
 
 const grains: { id: Grain; label: string }[] = [
@@ -145,12 +145,13 @@ export function Statistics() {
   const margin = total - cost
   const change = previousTotal === 0 ? null : (total - previousTotal) / previousTotal
   const products = topProducts(report.currentSales)
-  const methods = byMethod(report.currentSales)
+  const methods = collectedByAccount(state.movements, report.start, new Date(report.end.getTime() + 1))
+  const openCredit = report.currentSales.reduce((sum, sale) => sum + sale.balance, 0)
   const categories = byCategory(
     report.currentSales,
     new Map(state.products.map((product) => [product.id, product.category])),
   )
-  const methodTotal = methods.reduce((sum, [, value]) => sum + value, 0)
+  const methodTotal = methods.reduce((sum, [, value]) => sum + value, 0) + openCredit
 
   return (
     <div>
@@ -238,11 +239,14 @@ export function Statistics() {
           <h2 className="mb-5 font-serif text-2xl tracking-wide">Cómo pagan</h2>
           <Rank
             key={`${grain}-${count}-pagos`}
-            rows={methods.map(([method, value]) => ({
-              label: METHOD_LABEL[method as keyof typeof METHOD_LABEL],
-              hint: methodTotal ? percent(value / methodTotal) : '0%',
-              total: value,
-            }))}
+            rows={[
+              ...methods.map(([account, value]) => ({
+                label: ACCOUNT_LABEL[account],
+                hint: methodTotal ? percent(value / methodTotal) : '0%',
+                total: value,
+              })),
+              ...(openCredit > 0 ? [{ label: 'Sigue fiado', hint: methodTotal ? percent(openCredit / methodTotal) : '0%', total: openCredit }] : []),
+            ]}
           />
         </section>
       </div>

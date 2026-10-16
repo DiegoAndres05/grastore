@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { METHOD_LABEL } from '../lib/catalog'
+import { ACCOUNT_LABEL, ACCOUNTS } from '../lib/books'
 import { money } from '../lib/format'
-import type { CashMethod } from '../types'
+import type { CashAccount } from '../types'
 import { useStore } from '../store'
 import { Button, Field, FormError, Modal, MoneyInput, inputClass } from './ui'
-
-const methods: CashMethod[] = ['efectivo', 'tarjeta', 'transferencia']
 
 export function CollectModal({
   open,
@@ -22,7 +20,7 @@ export function CollectModal({
   const lock = useRef(false)
   const [chosen, setChosen] = useState(customerId ?? '')
   const [amount, setAmount] = useState(0)
-  const [method, setMethod] = useState<CashMethod>('efectivo')
+  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
 
@@ -34,7 +32,7 @@ export function CollectModal({
     const customer = state.customers.find((item) => item.id === id)
     setChosen(id)
     setAmount(sale?.balance ?? customer?.balance ?? 0)
-    setMethod('efectivo')
+    setAccount('efectivo')
     setNote('')
     setError('')
   }, [open, customerId, saleId, state.sales, state.customers])
@@ -45,7 +43,7 @@ export function CollectModal({
   function submit() {
     if (lock.current) return
     lock.current = true
-    const result = collect({ customerId: chosen, amount, method, note, saleId })
+    const result = collect({ customerId: chosen, amount, account, note, saleId })
     if (!result.ok) {
       lock.current = false
       setError(result.error)
@@ -76,16 +74,16 @@ export function CollectModal({
         <Field label="Valor" hint={customer ? `Saldo ${money(customer.balance)} · cupo ${money(customer.creditLimit)}` : undefined}>
           <MoneyInput value={amount} onChange={setAmount} />
         </Field>
-        <Field label="Forma de pago">
-          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
-            {methods.map((item) => (
+        <Field label="Entra a">
+          <div className="grid grid-cols-2 gap-2">
+            {ACCOUNTS.map((item) => (
               <button
                 key={item}
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-sm ${method === item ? 'border-ink bg-ink text-paper' : 'border-line bg-paper'}`}
-                onClick={() => setMethod(item)}
+                className={`rounded-xl border px-3 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-paper'}`}
+                onClick={() => setAccount(item)}
               >
-                {METHOD_LABEL[item]}
+                {ACCOUNT_LABEL[item]}
               </button>
             ))}
           </div>

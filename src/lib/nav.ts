@@ -5,7 +5,10 @@ export const PAGES = [
   'estadisticas',
   'productos',
   'compras',
+  'caja',
   'cobrar',
+  'pagar',
+  'balance',
   'clientes',
   'proveedores',
 ] as const

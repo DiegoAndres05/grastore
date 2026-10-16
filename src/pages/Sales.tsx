@@ -126,6 +126,8 @@ export function Sales() {
 }
 
 function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
+  const { returnSale, toast } = useStore()
+  const [confirm, setConfirm] = useState(false)
   const cost = sale.lines.reduce((sum, line) => sum + line.cost * line.qty, 0)
   const margin = sale.total - cost
   const status = saleStatus(sale)
@@ -151,8 +153,30 @@ function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
         {sale.balance > 0 ? <div className="flex justify-between text-warn"><dt>Saldo</dt><dd className="tabular-nums">{money(sale.balance)}</dd></div> : null}
       </dl>
       {sale.note ? <p className="mt-4 text-sm text-muted">{sale.note}</p> : null}
-      {sale.balance > 0 && sale.customerId ? (
-        <Button className="mt-6" onClick={onCollect}>Registrar abono</Button>
+      <div className="mt-6 flex flex-wrap gap-2">
+        {sale.balance > 0 && sale.customerId && sale.status === 'activa' ? (
+          <Button onClick={onCollect}>Registrar abono</Button>
+        ) : null}
+        {sale.status === 'activa' ? (
+          <Button variant="ghost" onClick={() => setConfirm(true)}>Devolver ticket</Button>
+        ) : null}
+      </div>
+      {confirm ? (
+        <div className="mt-4 rounded-2xl border border-line p-4">
+          <p className="text-sm leading-6 text-muted">La prenda vuelve al inventario, se anula lo que quedaba por cobrar y sale de la caja el dinero que ya había entrado por este ticket.</p>
+          <div className="mt-4 flex gap-2">
+            <Button variant="ghost" onClick={() => setConfirm(false)}>Cancelar</Button>
+            <Button onClick={() => {
+              const result = returnSale(sale.id)
+              if (!result.ok) {
+                toast(result.error, 'warn')
+                return
+              }
+              toast(`${sale.number} devuelto`)
+              setConfirm(false)
+            }}>Confirmar devolución</Button>
+          </div>
+        </div>
       ) : null}
     </div>
   )
