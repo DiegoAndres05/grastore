@@ -1,0 +1,86 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/cloud'
+import { Button, Field, FormError, inputClass } from '../components/ui'
+
+export function Login() {
+  const [mode, setMode] = useState<'entrar' | 'crear'>('entrar')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const node = document.getElementById('boot')
+    if (!node) {
+      document.documentElement.classList.add('ready')
+      return
+    }
+    node.remove()
+    document.documentElement.classList.add('ready')
+  }, [])
+
+  async function submit() {
+    const db = supabase()
+    if (!db) return
+    setBusy(true)
+    setError('')
+    setInfo('')
+    if (mode === 'crear') {
+      const { error: signError } = await db.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { data: { display_name: name.trim() || email.trim() } },
+      })
+      setBusy(false)
+      if (signError) {
+        setError(signError.message)
+        return
+      }
+      setInfo('Cuenta creada. Si el proyecto pide confirmar el correo, ábrelo y luego entra. Si no, ya quedaste adentro.')
+      return
+    }
+    const { error: signError } = await db.auth.signInWithPassword({ email: email.trim(), password })
+    setBusy(false)
+    if (signError) setError(signError.message)
+  }
+
+  return (
+    <div className="grid min-h-screen place-items-center px-4 py-10">
+      <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 sm:p-8">
+        <img src="/logo.svg" alt="La Grasita Store" className="mx-auto w-40" />
+        <p className="mt-4 text-center text-[11px] tracking-[0.22em] text-brass uppercase">Cartagena</p>
+        <h1 className="mt-3 text-center font-serif text-3xl">{mode === 'entrar' ? 'Entrar al libro' : 'Crear acceso'}</h1>
+        <p className="mt-2 text-center text-sm text-muted">Javier, Emeli y quien más lleve la tienda entran con su propio usuario. Cada registro guarda quién lo hizo.</p>
+        <form
+          className="mt-6 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void submit()
+          }}
+        >
+          {mode === 'crear' ? (
+            <Field label="Nombre">
+              <input className={inputClass} value={name} placeholder="Emeli" onChange={(event) => setName(event.target.value)} />
+            </Field>
+          ) : null}
+          <Field label="Correo">
+            <input className={inputClass} type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </Field>
+          <Field label="Clave">
+            <input className={inputClass} type="password" autoComplete={mode === 'crear' ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} />
+          </Field>
+          <FormError>{error}</FormError>
+          {info ? <p className="text-sm text-muted">{info}</p> : null}
+          <Button className="w-full" type="submit" disabled={busy || !email || password.length < 6}>
+            {busy ? 'Espera…' : mode === 'entrar' ? 'Entrar' : 'Crear cuenta'}
+          </Button>
+        </form>
+        <button type="button" className="mt-4 w-full text-center text-sm text-brass-deep" onClick={() => setMode(mode === 'entrar' ? 'crear' : 'entrar')}>
+          {mode === 'entrar' ? 'Crear una cuenta nueva' : 'Ya tengo cuenta'}
+        </button>
+      </div>
+    </div>
+  )
+}

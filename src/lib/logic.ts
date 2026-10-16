@@ -1,4 +1,6 @@
+import { accountForMethod, availableUnits, coerceWhen, moneyOf, stamp, uid, withMovement } from './money'
 import type {
+  Actor,
   CashMethod,
   Collection,
   Customer,
@@ -13,13 +15,17 @@ import type {
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 
 export type CheckoutInput = {
-  lines: { productId: string; qty: number }[]
+  lines: { productId: string; qty: number; price?: number }[]
   customerId: string | null
   discount: number
   method: PayMethod
   paid: number
   tendered: number
   note: string
+  date?: string
+  dueDate?: string | null
+  accountId?: string | null
+  actor?: Actor | null
 }
 
 export type CollectionInput = {
@@ -28,12 +34,19 @@ export type CollectionInput = {
   method: CashMethod
   note: string
   saleId?: string
+  date?: string
+  accountId?: string | null
+  actor?: Actor | null
 }
 
 export type PurchaseInput = {
   supplierId: string
   note: string
   lines: { productId: string; qty: number; cost: number }[]
+  date?: string
+  accountId?: string | null
+  onCredit?: boolean
+  actor?: Actor | null
 }
 
 export type ProductInput = {
@@ -46,6 +59,10 @@ export type ProductInput = {
   price: number
   stock: number
   minStock: number
+  location?: string
+  brand?: string
+  design?: string
+  actor?: Actor | null
 }
 
 export type CustomerInput = {
@@ -68,10 +85,6 @@ function fail(error: string): Result<never> {
   return { ok: false, error }
 }
 
-function moneyOf(value: number) {
-  return Math.max(0, Math.round(value))
-}
-
 export function applyCheckout(state: State, input: CheckoutInput): Result<{ state: State; sale: Sale }> {
   if (input.lines.length === 0) return fail('Agrega prendas al ticket')
 
@@ -86,9 +99,12 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
   for (const [productId, qty] of qtyById) {
     const product = state.products.find((item) => item.id === productId && item.active)
     if (!product) return fail('Hay una prenda que ya no está en el piso')
-    if (qty > product.stock) {
+    if (qty > availableUnits(product)) {
       return fail(`Sin stock suficiente de ${product.name} · ${product.color} · ${product.size}`)
     }
+    const price = input.lines.find((line) => line.productId === productId)?.price
+    const unit = price == null ? product.price : moneyOf(price)
+    if (unit <= 0) return fail(`El precio de ${product.name} debe ser mayor a cero`)
     saleLines.push({
       productId: product.id,
       sku: product.sku,
@@ -96,8 +112,9 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
       color: product.color,
       size: product.size,
       qty,
-      price: product.price,
+      price: unit,
       cost: product.cost,
+      returnedQty: 0,
     })
   }
 
@@ -131,10 +148,21 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
     if (tendered < total) return fail('El efectivo recibido no cubre el total')
   }
 
+  const when = coerceWhen(input.date)
+  const account = input.accountId
+    ? state.accounts.find((item) => item.id === input.accountId) ?? null
+    : input.method === 'credito'
+      ? paid > 0
+        ? accountForMethod(state, 'efectivo')
+        : null
+      : accountForMethod(state, input.method)
+  const cashIn = input.method === 'credito' ? paid : input.method === 'tarjeta' ? 0 : total
+  if (cashIn > 0 && !account) return fail('Elige la cuenta donde entra el dinero')
+
   const sale: Sale = {
-    id: crypto.randomUUID(),
+    id: uid(),
     number: `V-${state.seq.sale}`,
-    date: new Date().toISOString(),
+    date: when,
     customerId: customer?.id ?? null,
     customerName: customer?.name ?? 'Mostrador',
     lines: saleLines,
@@ -145,28 +173,43 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
     balance,
     tendered,
     note: input.note.trim(),
+    accountId: account?.id ?? null,
+    cashIn,
+    dueDate: input.method === 'credito' ? input.dueDate || null : null,
+    kind: 'retail',
+    voided: false,
+    affectsStock: true,
+    layawayId: null,
+    ...stamp(input.actor),
   }
 
-  return {
-    ok: true,
-    data: {
-      sale,
-      state: {
-        ...state,
-        seq: { ...state.seq, sale: state.seq.sale + 1 },
-        sales: [sale, ...state.sales],
-        products: state.products.map((product) => {
-          const qty = qtyById.get(product.id)
-          return qty ? { ...product, stock: product.stock - qty } : product
-        }),
-        customers: state.customers.map((item) =>
-          customer && item.id === customer.id && balance > 0
-            ? { ...item, balance: item.balance + balance }
-            : item,
-        ),
-      },
-    },
+  let next = {
+    ...state,
+    seq: { ...state.seq, sale: state.seq.sale + 1 },
+    sales: [sale, ...state.sales],
+    products: state.products.map((product) => {
+      const qty = qtyById.get(product.id)
+      return qty ? { ...product, stock: product.stock - qty } : product
+    }),
+    customers: state.customers.map((item) =>
+      customer && item.id === customer.id && balance > 0 ? { ...item, balance: item.balance + balance } : item,
+    ),
   }
+  if (account && cashIn > 0) {
+    next = withMovement(next, {
+      date: when,
+      accountId: account.id,
+      kind: 'sale',
+      direction: 'in',
+      amount: cashIn,
+      counterparty: sale.customerName,
+      note: sale.number,
+      refId: sale.id,
+      actor: input.actor,
+    })
+  }
+
+  return { ok: true, data: { sale, state: next } }
 }
 
 export function applyCollection(
@@ -199,31 +242,46 @@ export function applyCollection(
   }
   if (remaining > 0) return fail('No hay ventas abiertas para aplicar este abono')
 
+  const when = coerceWhen(input.date)
+  const account = input.accountId
+    ? state.accounts.find((item) => item.id === input.accountId) ?? null
+    : accountForMethod(state, input.method)
+  if (input.method !== 'tarjeta' && !account) return fail('Elige la cuenta donde entra el abono')
+
   const collection: Collection = {
-    id: crypto.randomUUID(),
-    date: new Date().toISOString(),
+    id: uid(),
+    date: when,
     customerId: customer.id,
     customerName: customer.name,
     amount,
     method: input.method,
     note: input.note.trim(),
     saleId: input.saleId ?? null,
+    accountId: account?.id ?? null,
+    ...stamp(input.actor),
   }
 
-  return {
-    ok: true,
-    data: {
-      collection,
-      state: {
-        ...state,
-        collections: [collection, ...state.collections],
-        sales: state.sales.map((sale) => updates.get(sale.id) ?? sale),
-        customers: state.customers.map((item) =>
-          item.id === customer.id ? { ...item, balance: item.balance - amount } : item,
-        ),
-      },
-    },
+  let next: State = {
+    ...state,
+    collections: [collection, ...state.collections],
+    sales: state.sales.map((sale) => updates.get(sale.id) ?? sale),
+    customers: state.customers.map((item) => (item.id === customer.id ? { ...item, balance: item.balance - amount } : item)),
   }
+  if (account) {
+    next = withMovement(next, {
+      date: when,
+      accountId: account.id,
+      kind: 'collection',
+      direction: 'in',
+      amount,
+      counterparty: customer.name,
+      note: input.note.trim() || 'Abono',
+      refId: collection.id,
+      actor: input.actor,
+    })
+  }
+
+  return { ok: true, data: { collection, state: next } }
 }
 
 export function applyPurchase(state: State, input: PurchaseInput): Result<{ state: State; purchase: Purchase }> {
@@ -259,29 +317,68 @@ export function applyPurchase(state: State, input: PurchaseInput): Result<{ stat
     })
   }
 
+  const total = lines.reduce((sum, line) => sum + line.cost * line.qty, 0)
+  const when = coerceWhen(input.date)
+  const account = input.accountId ? state.accounts.find((item) => item.id === input.accountId) ?? null : null
+  if (!input.onCredit && input.accountId && !account) return fail('Elige la cuenta con la que se paga')
+  let payableId: string | null = null
+  let next: State = { ...state, products }
+  if (input.onCredit) {
+    payableId = uid()
+    next = {
+      ...next,
+      payables: [
+        {
+          id: payableId,
+          date: when,
+          creditor: supplier.name,
+          supplierId: supplier.id,
+          concept: input.note.trim() || 'Compra de mercancía',
+          kind: 'proveedor',
+          category: 'Mercancía',
+          original: total,
+          balance: total,
+          note: '',
+          ...stamp(input.actor),
+        },
+        ...next.payables,
+      ],
+    }
+  }
+
   const purchase: Purchase = {
-    id: crypto.randomUUID(),
+    id: uid(),
     number: `C-${String(state.seq.purchase).padStart(4, '0')}`,
-    date: new Date().toISOString(),
+    date: when,
     supplierId: supplier.id,
     supplierName: supplier.name,
     lines,
-    total: lines.reduce((sum, line) => sum + line.cost * line.qty, 0),
+    total,
     note: input.note.trim(),
+    accountId: account?.id ?? null,
+    payableId,
+    ...stamp(input.actor),
+  }
+  next = {
+    ...next,
+    purchases: [purchase, ...next.purchases],
+    seq: { ...next.seq, purchase: state.seq.purchase + 1 },
+  }
+  if (account && !input.onCredit) {
+    next = withMovement(next, {
+      date: when,
+      accountId: account.id,
+      kind: 'purchase',
+      direction: 'out',
+      amount: total,
+      counterparty: supplier.name,
+      note: purchase.number,
+      refId: purchase.id,
+      actor: input.actor,
+    })
   }
 
-  return {
-    ok: true,
-    data: {
-      purchase,
-      state: {
-        ...state,
-        products,
-        purchases: [purchase, ...state.purchases],
-        seq: { ...state.seq, purchase: state.seq.purchase + 1 },
-      },
-    },
-  }
+  return { ok: true, data: { purchase, state: next } }
 }
 
 export function applyProduct(
@@ -306,9 +403,14 @@ export function applyProduct(
   if (price <= 0) return fail('El precio de venta debe ser mayor a cero')
   if (stock < 0 || minStock < 0) return fail('Las existencias no pueden ser negativas')
 
+  const extras = {
+    location: input.location?.trim() ?? '',
+    brand: input.brand?.trim() ?? '',
+    design: input.design?.trim() ?? '',
+  }
   if (!id) {
     const product: Product = {
-      id: crypto.randomUUID(),
+      id: uid(),
       sku,
       name,
       category: input.category,
@@ -317,15 +419,18 @@ export function applyProduct(
       cost,
       price,
       stock,
+      reserved: 0,
       minStock,
       active: true,
+      ...extras,
+      ...stamp(input.actor),
     }
     return { ok: true, data: { product, state: { ...state, products: [product, ...state.products] } } }
   }
 
   const current = state.products.find((product) => product.id === id)
   if (!current) return fail('Prenda no encontrada')
-  const product: Product = { ...current, sku, name, category: input.category, color, size, cost, price, stock, minStock }
+  const product: Product = { ...current, sku, name, category: input.category, color, size, cost, price, stock, minStock, ...extras }
   return {
     ok: true,
     data: {
@@ -355,7 +460,7 @@ export function applyCustomer(
 
   if (!id) {
     const customer: Customer = {
-      id: crypto.randomUUID(),
+      id: uid(),
       name,
       phone: input.phone.trim(),
       email,
@@ -413,7 +518,7 @@ export function applySupplier(
     specialty: input.specialty.trim(),
   }
   if (!id) {
-    const supplier: Supplier = { id: crypto.randomUUID(), ...fields }
+    const supplier: Supplier = { id: uid(), ...fields }
     return { ok: true, data: { supplier, state: { ...state, suppliers: [supplier, ...state.suppliers] } } }
   }
   const current = state.suppliers.find((supplier) => supplier.id === id)

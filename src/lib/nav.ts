@@ -8,6 +8,11 @@ export const PAGES = [
   'cobrar',
   'clientes',
   'proveedores',
+  'caja',
+  'gastos',
+  'pagar',
+  'contabilidad',
+  'importar',
 ] as const
 
 export type PageId = (typeof PAGES)[number]

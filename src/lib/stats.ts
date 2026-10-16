@@ -1,3 +1,4 @@
+import { isRetailSale } from './format'
 import type { Sale } from '../types'
 
 export type Grain = 'dia' | 'semana' | 'mes'
@@ -94,7 +95,7 @@ export function buildBuckets(grain: Grain, count: number, now = new Date()) {
 }
 
 function fill(sales: Sale[], frame: { start: Date; end: Date; label: string }): Bucket {
-  const inside = sales.filter((sale) => inRange(sale.date, frame.start, frame.end))
+  const inside = sales.filter((sale) => isRetailSale(sale) && inRange(sale.date, frame.start, frame.end))
   return {
     ...frame,
     total: inside.reduce((sum, sale) => sum + sale.total, 0),
@@ -123,7 +124,7 @@ export function rangeLabel(start: Date, end: Date) {
 
 export function topProducts(sales: Sale[], limit = 5) {
   const map = new Map<string, { name: string; detail: string; total: number; units: number }>()
-  for (const sale of sales) {
+  for (const sale of sales.filter(isRetailSale)) {
     for (const line of sale.lines) {
       const key = `${line.productId}`
       const current = map.get(key) ?? { name: line.name, detail: `${line.color} · ${line.size}`, total: 0, units: 0 }
@@ -137,13 +138,13 @@ export function topProducts(sales: Sale[], limit = 5) {
 
 export function byMethod(sales: Sale[]) {
   const map = new Map<string, number>()
-  for (const sale of sales) map.set(sale.method, (map.get(sale.method) ?? 0) + sale.total)
+  for (const sale of sales.filter(isRetailSale)) map.set(sale.method, (map.get(sale.method) ?? 0) + sale.total)
   return [...map.entries()].sort((a, b) => b[1] - a[1])
 }
 
 export function byCategory(sales: Sale[], categories: Map<string, string>) {
   const map = new Map<string, number>()
-  for (const sale of sales) {
+  for (const sale of sales.filter(isRetailSale)) {
     for (const line of sale.lines) {
       const category = categories.get(line.productId) ?? 'Otras'
       map.set(category, (map.get(category) ?? 0) + line.qty * line.price)

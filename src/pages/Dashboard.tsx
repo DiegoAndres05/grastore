@@ -1,6 +1,7 @@
 import { useState, type PointerEvent } from 'react'
 import { swatch } from '../lib/catalog'
-import { greeting, isSameDay, isSameMonth, longDate, money, percent, relativeDay } from '../lib/format'
+import { greeting, isRetailSale, isSameDay, isSameMonth, longDate, money, percent, relativeDay } from '../lib/format'
+import { availableUnits } from '../lib/money'
 import { go } from '../lib/nav'
 import { useStore } from '../store'
 import { CountUp } from '../components/motion'
@@ -85,17 +86,18 @@ function Trend({ sales }: { sales: { date: string; total: number }[] }) {
 
 export function Dashboard() {
   const { state } = useStore()
-  const todaySales = state.sales.filter((sale) => isSameDay(sale.date))
+  const retail = state.sales.filter(isRetailSale)
+  const todaySales = retail.filter((sale) => isSameDay(sale.date))
   const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0)
   const todayUnits = todaySales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0)
-  const monthSales = state.sales.filter((sale) => isSameMonth(sale.date))
+  const monthSales = retail.filter((sale) => isSameMonth(sale.date))
   const monthTotal = monthSales.reduce((sum, sale) => sum + sale.total, 0)
   const monthCost = monthSales.reduce((sum, sale) => sum + sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0)
   const monthMargin = monthTotal - monthCost
   const stock = state.products.filter((product) => product.active)
   const stockCost = stock.reduce((sum, product) => sum + product.stock * product.cost, 0)
   const stockRetail = stock.reduce((sum, product) => sum + product.stock * product.price, 0)
-  const low = stock.filter((product) => product.stock <= product.minStock).sort((a, b) => a.stock - b.stock)
+  const low = stock.filter((product) => availableUnits(product) <= product.minStock).sort((a, b) => availableUnits(a) - availableUnits(b))
   const open = state.sales.filter((sale) => sale.balance > 0).sort((a, b) => a.date.localeCompare(b.date))
   const receivable = open.reduce((sum, sale) => sum + sale.balance, 0)
   const average = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0
@@ -127,7 +129,7 @@ export function Dashboard() {
           <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={todayTotal} /></p>
           <p className="mt-2 text-sm text-muted">Ticket promedio {money(average)}</p>
           <div className="mt-8">
-            <Trend sales={state.sales} />
+            <Trend sales={retail} />
           </div>
         </section>
 
@@ -170,7 +172,7 @@ export function Dashboard() {
             <button type="button" className="text-sm text-brass-deep" onClick={() => go('ventas')}>Ver todas</button>
           </div>
           <ul>
-            {state.sales.slice(0, 6).map((sale) => (
+            {retail.slice(0, 6).map((sale) => (
               <li key={sale.id} className="flex items-center justify-between gap-3 border-t border-line py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm">{sale.customerName}</p>
@@ -194,7 +196,7 @@ export function Dashboard() {
                   <p className="truncate text-sm">{product.name}</p>
                   <p className="mt-0.5 text-xs text-muted">{product.color} · {product.size}</p>
                 </div>
-                <p className={`text-sm tabular-nums ${product.stock === 0 ? 'text-danger' : 'text-warn'}`}>{product.stock} und</p>
+                <p className={`text-sm tabular-nums ${availableUnits(product) === 0 ? 'text-danger' : 'text-warn'}`}>{availableUnits(product)} und</p>
               </li>
             ))}
             {low.length === 0 ? <li className="border-t border-line py-6 text-sm text-muted">Ninguna prenda está bajo el mínimo.</li> : null}

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { METHOD_LABEL } from '../lib/catalog'
-import { money } from '../lib/format'
+import { CASH_METHODS, METHOD_LABEL } from '../lib/catalog'
+import { money, todayInput } from '../lib/format'
 import type { CashMethod } from '../types'
 import { useStore } from '../store'
 import { Button, Field, FormError, Modal, MoneyInput, inputClass } from './ui'
 
-const methods: CashMethod[] = ['efectivo', 'tarjeta', 'transferencia']
+const methods: CashMethod[] = CASH_METHODS
 
 export function CollectModal({
   open,
@@ -24,6 +24,7 @@ export function CollectModal({
   const [amount, setAmount] = useState(0)
   const [method, setMethod] = useState<CashMethod>('efectivo')
   const [note, setNote] = useState('')
+  const [date, setDate] = useState(todayInput())
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -45,7 +46,7 @@ export function CollectModal({
   function submit() {
     if (lock.current) return
     lock.current = true
-    const result = collect({ customerId: chosen, amount, method, note, saleId })
+    const result = collect({ customerId: chosen, amount, method, note, saleId, date })
     if (!result.ok) {
       lock.current = false
       setError(result.error)
@@ -89,6 +90,9 @@ export function CollectModal({
               </button>
             ))}
           </div>
+        </Field>
+        <Field label="Fecha">
+          <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
         <Field label="Nota">
           <input className={inputClass} value={note} placeholder="Opcional" onChange={(event) => setNote(event.target.value)} />
