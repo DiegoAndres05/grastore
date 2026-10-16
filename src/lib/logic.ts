@@ -71,6 +71,7 @@ export type CustomerInput = {
   email: string
   city: string
   creditLimit: number
+  actor?: Actor | null
 }
 
 export type SupplierInput = {
@@ -79,6 +80,7 @@ export type SupplierInput = {
   phone: string
   city: string
   specialty: string
+  actor?: Actor | null
 }
 
 function fail(error: string): Result<never> {
@@ -468,6 +470,7 @@ export function applyCustomer(
       creditLimit,
       balance: 0,
       since: new Date().toISOString(),
+      ...stamp(input.actor),
     }
     return { ok: true, data: { customer, state: { ...state, customers: [customer, ...state.customers] } } }
   }
@@ -518,7 +521,7 @@ export function applySupplier(
     specialty: input.specialty.trim(),
   }
   if (!id) {
-    const supplier: Supplier = { id: uid(), ...fields }
+    const supplier: Supplier = { id: uid(), ...fields, ...stamp(input.actor) }
     return { ok: true, data: { supplier, state: { ...state, suppliers: [supplier, ...state.suppliers] } } }
   }
   const current = state.suppliers.find((supplier) => supplier.id === id)

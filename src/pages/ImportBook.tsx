@@ -36,13 +36,14 @@ export function ImportBook() {
     setDecisions((current) => current && { ...current, products: current.products.map((item) => (item.key === key ? { ...item, ...patch } : item)) })
   }
 
-  function commit() {
+  async function commit() {
     if (!built) return
     if (bookHasRealData(state) && !confirming) {
       setConfirming(true)
       return
     }
-    replaceBook(built)
+    const result = await replaceBook(built)
+    if (!result.ok) return
     setConfirming(false)
   }
 

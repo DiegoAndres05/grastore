@@ -156,19 +156,22 @@ export function Receivables() {
               </div>
               <div className="mt-3 flex flex-wrap gap-3">
                 <button type="button" className="text-brass-deep" onClick={() => {
-                  const result = layawayDeposit({ layawayId: item.id, amount: item.balance, accountId: state.accounts[0]?.id ?? '', date: todayInput() })
-                  if (!result.ok) toast(result.error, 'warn')
-                  else toast('Abono del apartado registrado')
+                  void layawayDeposit({ layawayId: item.id, amount: item.balance, accountId: state.accounts[0]?.id ?? '', date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast('Abono del apartado registrado')
+                  })
                 }}>Abonar el saldo</button>
                 {item.balance === 0 ? <button type="button" className="text-brass-deep" onClick={() => {
-                  const result = completeLayaway({ layawayId: item.id, date: todayInput() })
-                  if (!result.ok) toast(result.error, 'warn')
-                  else toast(`Entregado en ${result.data.number}`)
+                  void completeLayaway({ layawayId: item.id, date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast(`Entregado en ${result.data.number}`)
+                  })
                 }}>Entregar</button> : null}
                 <button type="button" className="text-muted" onClick={() => {
-                  const result = cancelLayaway({ layawayId: item.id, accountId: state.accounts[0]?.id, date: todayInput() })
-                  if (!result.ok) toast(result.error, 'warn')
-                  else toast('Apartado cancelado')
+                  void cancelLayaway({ layawayId: item.id, accountId: state.accounts[0]?.id, date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast('Apartado cancelado')
+                  })
                 }}>Cancelar</button>
               </div>
             </li>
@@ -185,18 +188,20 @@ export function Receivables() {
           <Field label="Sale de"><AccountSelect accounts={state.accounts} value={loanAccount} onChange={setLoanAccount} /></Field>
         </div>
         <Button className="mt-4" variant="ghost" onClick={() => {
-          const result = loan({ person: loanPerson, amount: loanAmount, accountId: loanAccount, date: todayInput() })
-          if (!result.ok) toast(result.error, 'warn')
-          else { toast('Préstamo registrado'); setLoanPerson(''); setLoanAmount(0) }
+          void loan({ person: loanPerson, amount: loanAmount, accountId: loanAccount, date: todayInput() }).then((result) => {
+            if (!result.ok) toast(result.error, 'warn')
+            else { toast('Préstamo registrado'); setLoanPerson(''); setLoanAmount(0) }
+          })
         }}>Prestar</Button>
         <ul className="mt-4 space-y-2">
           {state.loans.filter((item) => item.balance > 0).map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-3 border-t border-line py-3 text-sm">
               <span>{item.person} · {money(item.balance)}</span>
               <button type="button" className="text-brass-deep" onClick={() => {
-                const result = payLoan({ loanId: item.id, amount: item.balance, accountId: loanAccount, date: todayInput() })
-                if (!result.ok) toast(result.error, 'warn')
-                else toast('Abono del préstamo registrado')
+                void payLoan({ loanId: item.id, amount: item.balance, accountId: loanAccount, date: todayInput() }).then((result) => {
+                  if (!result.ok) toast(result.error, 'warn')
+                  else toast('Abono del préstamo registrado')
+                })
               }}>Cobrar todo</button>
             </li>
           ))}

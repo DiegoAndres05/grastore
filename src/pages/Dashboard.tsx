@@ -7,7 +7,7 @@ import { useStore } from '../store'
 import { CountUp } from '../components/motion'
 import { Button } from '../components/ui'
 
-function Trend({ sales }: { sales: { date: string; total: number }[] }) {
+function Trend({ sales, showStats }: { sales: { date: string; total: number }[]; showStats: boolean }) {
   const [hover, setHover] = useState<number | null>(null)
   const points = Array.from({ length: 14 }, (_, index) => {
     const date = new Date()
@@ -52,7 +52,7 @@ function Trend({ sales }: { sales: { date: string; total: number }[] }) {
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="flex items-baseline gap-3">
           <p className="text-[11px] tracking-[0.18em] text-muted uppercase">Últimos 14 días</p>
-          <button type="button" className="text-xs text-brass-deep" onClick={() => go('estadisticas')}>Ampliar</button>
+          {showStats ? <button type="button" className="text-xs text-brass-deep" onClick={() => go('estadisticas')}>Ampliar</button> : null}
         </div>
         <p className="text-sm text-muted tabular-nums">{active ? `${active.label} · ${money(active.total)}` : money(points.reduce((sum, point) => sum + point.total, 0))}</p>
       </div>
@@ -85,7 +85,7 @@ function Trend({ sales }: { sales: { date: string; total: number }[] }) {
 }
 
 export function Dashboard() {
-  const { state } = useStore()
+  const { state, can } = useStore()
   const retail = state.sales.filter(isRetailSale)
   const todaySales = retail.filter((sale) => isSameDay(sale.date))
   const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0)
@@ -102,12 +102,20 @@ export function Dashboard() {
   const receivable = open.reduce((sum, sale) => sum + sale.balance, 0)
   const average = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0
 
-  const stats = [
-    { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
-    { label: 'Margen del mes', value: monthMargin, kind: 'money' as const, hint: monthTotal ? percent(monthMargin / monthTotal) : 'Sin ventas' },
-    { label: 'Inventario', value: stockCost, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
-    { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
-  ]
+  const stockUnits = stock.reduce((sum, product) => sum + product.stock, 0)
+  const stats = can('products.costs')
+    ? [
+        { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
+        { label: 'Margen del mes', value: monthMargin, kind: 'money' as const, hint: monthTotal ? percent(monthMargin / monthTotal) : 'Sin ventas' },
+        { label: 'Inventario', value: stockCost, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
+        { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
+      ]
+    : [
+        { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
+        { label: 'Unidades del mes', value: monthSales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0), kind: 'int' as const, hint: 'Sin costo' },
+        { label: 'Existencias', value: stockUnits, kind: 'int' as const, hint: `${stock.length} prendas activas` },
+        { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
+      ]
 
   return (
     <div>
@@ -129,7 +137,7 @@ export function Dashboard() {
           <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={todayTotal} /></p>
           <p className="mt-2 text-sm text-muted">Ticket promedio {money(average)}</p>
           <div className="mt-8">
-            <Trend sales={retail} />
+            <Trend sales={retail} showStats={can('reports.read')} />
           </div>
         </section>
 

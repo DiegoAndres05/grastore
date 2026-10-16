@@ -572,7 +572,11 @@ export function applyVoidSale(state: State, input: { saleId: string; date?: stri
   const qtyById = new Map(sale.lines.map((line) => [line.productId, line.qty - (line.returnedQty ?? 0)]))
   let next: State = {
     ...state,
-    sales: state.sales.map((item) => (item.id === sale.id ? { ...item, voided: true, balance: 0 } : item)),
+    sales: state.sales.map((item) =>
+      item.id === sale.id
+        ? { ...item, voided: true, balance: 0, voidedBy: input.actor?.id ?? null, voidedByName: input.actor?.name ?? null }
+        : item,
+    ),
     products:
       sale.affectsStock === false
         ? state.products

@@ -18,8 +18,8 @@ export function Accounting() {
   const close = monthlyClose(state, year, month)
   const days = dailyReport(state, close.from === close.to ? { from: close.from, to: close.to } : { from: close.from, to: close.to })
 
-  function saveShare() {
-    const result = setSalaryShare(share)
+  async function saveShare() {
+    const result = await setSalaryShare(share)
     if (!result.ok) toast(result.error, 'warn')
     else toast('Porcentaje de sueldo actualizado')
   }

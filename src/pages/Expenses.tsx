@@ -20,8 +20,8 @@ export function Expenses() {
   const [capitalKind, setCapitalKind] = useState<'aporte' | 'prestamo'>('aporte')
   const [capitalAccount, setCapitalAccount] = useState(state.accounts[0]?.id ?? '')
 
-  function save() {
-    const result = expense({
+  async function save() {
+    const result = await expense({
       category: custom.trim() || category,
       amount,
       payee,
@@ -41,8 +41,8 @@ export function Expenses() {
     toast('Gasto registrado')
   }
 
-  function saveCapital() {
-    const result = capital({ kind: capitalKind, person, amount: capitalAmount, accountId: capitalAccount, date })
+  async function saveCapital() {
+    const result = await capital({ kind: capitalKind, person, amount: capitalAmount, accountId: capitalAccount, date })
     if (!result.ok) {
       toast(result.error, 'warn')
       return

@@ -97,6 +97,8 @@ export type Sale = {
   dueDate?: string | null
   kind?: SaleKind
   voided?: boolean
+  voidedBy?: string | null
+  voidedByName?: string | null
   affectsStock?: boolean
   layawayId?: string | null
   createdBy?: string | null

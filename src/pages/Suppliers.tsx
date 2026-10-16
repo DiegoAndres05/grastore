@@ -34,8 +34,8 @@ export function Suppliers() {
     setOpen(true)
   }
 
-  function save() {
-    const result = saveSupplier(form, editing ?? undefined)
+  async function save() {
+    const result = await saveSupplier(form, editing ?? undefined)
     if (!result.ok) {
       setError(result.error)
       return
@@ -79,9 +79,10 @@ export function Suppliers() {
                     type="button"
                     className="text-sm text-muted"
                     onClick={() => {
-                      const result = removeSupplier(supplier.id)
-                      if (!result.ok) toast(result.error, 'warn')
-                      else toast('Proveedor eliminado')
+                      void removeSupplier(supplier.id).then((result) => {
+                        if (!result.ok) toast(result.error, 'warn')
+                        else toast('Proveedor eliminado')
+                      })
                     }}
                   >
                     Eliminar
@@ -127,9 +128,10 @@ export function Suppliers() {
                         type="button"
                         className="ml-3 text-sm text-muted"
                         onClick={() => {
-                          const result = removeSupplier(supplier.id)
-                          if (!result.ok) toast(result.error, 'warn')
-                          else toast('Proveedor eliminado')
+                          void removeSupplier(supplier.id).then((result) => {
+                            if (!result.ok) toast(result.error, 'warn')
+                            else toast('Proveedor eliminado')
+                          })
                         }}
                       >
                         Eliminar
