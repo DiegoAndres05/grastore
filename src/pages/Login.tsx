@@ -26,7 +26,7 @@ export function Login() {
     const { data, error: checkError } = await db.rpc('signup_open')
     const next = interpretSignup(data, checkError?.message)
     setSignup(next)
-    if (next.status !== 'open') setMode('entrar')
+    setMode(next.status === 'open' ? 'crear' : 'entrar')
   }
 
   useEffect(() => {
