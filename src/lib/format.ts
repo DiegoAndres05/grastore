@@ -66,10 +66,28 @@ export function percent(ratio: number) {
   return `${Math.round(ratio * 100)}%`
 }
 
-export function saleStatus(sale: Sale): { label: string; tone: 'ok' | 'warn' | 'danger' } {
+export function saleStatus(sale: Sale): { label: string; tone: 'ok' | 'warn' | 'danger' | 'ink' } {
+  if (sale.voided) return { label: 'Anulada', tone: 'ink' }
+  if (sale.kind === 'opening') return { label: sale.balance > 0 ? 'Saldo inicial' : 'Saldo saldado', tone: sale.balance > 0 ? 'warn' : 'ok' }
   if (sale.balance <= 0) return { label: 'Pagada', tone: 'ok' }
   if (sale.paid > 0) return { label: 'Parcial', tone: 'warn' }
   return { label: 'Pendiente', tone: 'danger' }
+}
+
+export function todayInput(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+export function nextCutoff(day: 15 | 30, from = new Date()) {
+  const cursor = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  if (cursor.getDate() <= day) return todayInput(new Date(cursor.getFullYear(), cursor.getMonth(), day))
+  return todayInput(new Date(cursor.getFullYear(), cursor.getMonth() + 1, day))
+}
+
+export function isRetailSale(sale: Sale) {
+  return !sale.voided && (sale.kind ?? 'retail') === 'retail'
 }
 
 export function greeting(date = new Date()) {

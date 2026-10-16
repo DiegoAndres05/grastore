@@ -113,7 +113,7 @@ export function Sales() {
       )}
 
       <Modal open={live != null} kicker={live ? dateTime(live.date) : ''} title={live?.number ?? ''} onClose={() => setSelected(null)}>
-        {live ? <SaleBody sale={live} onCollect={() => setCollectSale(live)} /> : null}
+        {live ? <SaleBody key={live.id} sale={live} onCollect={() => setCollectSale(live)} /> : null}
       </Modal>
       <CollectModal
         open={collectSale != null}
@@ -126,6 +126,10 @@ export function Sales() {
 }
 
 function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
+  const { voidSale, updateSale, returnSale, toast } = useStore()
+  const [prices, setPrices] = useState(sale.lines.map((line) => line.price))
+  const [when, setWhen] = useState(sale.date.slice(0, 10))
+  const [returnQty, setReturnQty] = useState(sale.lines.map(() => 0))
   const cost = sale.lines.reduce((sum, line) => sum + line.cost * line.qty, 0)
   const margin = sale.total - cost
   const status = saleStatus(sale)
@@ -151,8 +155,52 @@ function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
         {sale.balance > 0 ? <div className="flex justify-between text-warn"><dt>Saldo</dt><dd className="tabular-nums">{money(sale.balance)}</dd></div> : null}
       </dl>
       {sale.note ? <p className="mt-4 text-sm text-muted">{sale.note}</p> : null}
-      {sale.balance > 0 && sale.customerId ? (
+      {sale.balance > 0 && sale.customerId && !sale.voided ? (
         <Button className="mt-6" onClick={onCollect}>Registrar abono</Button>
+      ) : null}
+      {!sale.voided && sale.kind !== 'opening' ? (
+        <div className="mt-6 space-y-3 border-t border-line pt-4">
+          <label className="block text-sm">
+            <span className="mb-2 block text-[11px] tracking-[0.16em] text-muted uppercase">Fecha</span>
+            <input className="w-full rounded-xl border border-line bg-paper px-3 py-2" type="date" value={when} onChange={(event) => setWhen(event.target.value)} />
+          </label>
+          <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Corregir precios</p>
+          {sale.lines.map((line, index) => (
+            <label key={`${line.productId}-${index}`} className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate">{line.name}</span>
+              <input className="w-28 rounded-xl border border-line bg-paper px-3 py-2 text-right" inputMode="numeric" value={new Intl.NumberFormat('es-CO').format(prices[index] ?? line.price)} onChange={(event) => setPrices((current) => current.map((price, item) => item === index ? Number(event.target.value.replace(/\D/g, '')) || 0 : price))} />
+            </label>
+          ))}
+          <Button variant="ghost" onClick={() => {
+            const result = updateSale(sale.id, { date: when, prices: prices.map((price, index) => ({ index, price })) })
+            if (!result.ok) toast(result.error, 'warn')
+            else toast('Venta actualizada')
+          }}>Guardar precios</Button>
+          <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Devolver</p>
+          {sale.lines.map((line, index) => (
+            <label key={`back-${line.productId}-${index}`} className="flex items-center justify-between gap-3 text-sm">
+              <span>{line.name} · quedan {line.qty - (line.returnedQty ?? 0)}</span>
+              <input className="w-20 rounded-xl border border-line bg-paper px-3 py-2" inputMode="numeric" value={returnQty[index] || ''} onChange={(event) => setReturnQty((current) => current.map((qty, item) => item === index ? Number(event.target.value.replace(/\D/g, '')) || 0 : qty))} />
+            </label>
+          ))}
+          <Button variant="ghost" onClick={() => {
+            const result = returnSale({ saleId: sale.id, lines: returnQty.map((qty, index) => ({ index, qty })).filter((line) => line.qty > 0) })
+            if (!result.ok) toast(result.error, 'warn')
+            else toast('Devolución registrada')
+          }}>Registrar devolución</Button>
+          <Button variant="ghost" onClick={() => {
+            const result = voidSale(sale.id)
+            if (!result.ok) toast(result.error, 'warn')
+            else toast('Venta anulada')
+          }}>Anular venta</Button>
+        </div>
+      ) : null}
+      {!sale.voided && sale.kind === 'opening' ? (
+        <Button className="mt-6" variant="ghost" onClick={() => {
+          const result = voidSale(sale.id)
+          if (!result.ok) toast(result.error, 'warn')
+          else toast('Saldo inicial anulado')
+        }}>Anular saldo inicial</Button>
       ) : null}
     </div>
   )

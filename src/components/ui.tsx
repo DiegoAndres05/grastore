@@ -114,6 +114,29 @@ export function Empty({ title, text }: { title: string; text: string }) {
   )
 }
 
+export function AccountSelect({
+  value,
+  onChange,
+  accounts,
+  allowEmpty = false,
+  emptyLabel = 'Queda por pagar',
+}: {
+  value: string
+  onChange: (value: string) => void
+  accounts: { id: string; name: string; active: boolean }[]
+  allowEmpty?: boolean
+  emptyLabel?: string
+}) {
+  return (
+    <select className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>
+      {allowEmpty ? <option value="">{emptyLabel}</option> : null}
+      {accounts.filter((account) => account.active).map((account) => (
+        <option key={account.id} value={account.id}>{account.name}</option>
+      ))}
+    </select>
+  )
+}
+
 export function FormError({ children }: { children?: string }) {
   if (!children) return null
   return <p className="text-sm text-danger">{children}</p>

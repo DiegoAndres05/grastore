@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Badge, Button, Empty, Field, FormError, Modal, MoneyInput, PageHeader, SearchBox, inputClass, tdClass, thClass } from '../components/ui'
-import { CATEGORIES, COLORS, nextSku, norm, swatch } from '../lib/catalog'
-import { money, percent } from '../lib/format'
+import { nextSku, norm, swatch } from '../lib/catalog'
+import { inventoryRows, saveCsv, saveXlsx } from '../lib/exportSheet'
+import { money, percent, todayInput } from '../lib/format'
 import type { ProductInput } from '../lib/logic'
 import { useStore } from '../store'
 import type { Product } from '../types'
@@ -19,7 +20,7 @@ const blank = (sku: string): ProductInput => ({
 })
 
 export function Products() {
-  const { state, saveProduct, setProductActive, toast } = useStore()
+  const { state, saveProduct, setProductActive, addCategory, addColor, adjust, toast } = useStore()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('Todas')
   const [archived, setArchived] = useState(false)
@@ -27,6 +28,12 @@ export function Products() {
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState<ProductInput>(blank(''))
   const [error, setError] = useState('')
+  const [categoryName, setCategoryName] = useState('')
+  const [colorName, setColorName] = useState('')
+  const [adjustId, setAdjustId] = useState('')
+  const [delta, setDelta] = useState(0)
+  const [reason, setReason] = useState('')
+  const [adjustDate, setAdjustDate] = useState(todayInput())
 
   const rows = useMemo(() => {
     const needle = norm(query)
@@ -39,7 +46,7 @@ export function Products() {
 
   function startCreate() {
     setEditing(null)
-    setForm(blank(nextSku(state.products.map((product) => product.sku))))
+    setForm({ ...blank(nextSku(state.products.map((product) => product.sku))), category: state.settings.categories[0] ?? 'General' })
     setError('')
     setOpen(true)
   }
@@ -56,6 +63,9 @@ export function Products() {
       price: product.price,
       stock: product.stock,
       minStock: product.minStock,
+      location: product.location ?? '',
+      brand: product.brand ?? '',
+      design: product.design ?? '',
     })
     setError('')
     setOpen(true)
@@ -79,12 +89,18 @@ export function Products() {
         kicker="Catálogo"
         title="Prendas"
         text="Talla, color, costo y precio viven en la misma ficha. El stock baja con cada venta."
-        action={<Button onClick={startCreate}>Nueva prenda</Button>}
+        action={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => saveXlsx('inventario.xlsx', [{ name: 'Inventario', rows: inventoryRows(state) }])}>Excel</Button>
+            <Button variant="ghost" onClick={() => saveCsv('inventario.csv', inventoryRows(state))}>CSV</Button>
+            <Button onClick={startCreate}>Nueva prenda</Button>
+          </div>
+        }
       />
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="lg:w-80"><SearchBox value={query} onChange={setQuery} placeholder="Nombre, SKU o color" /></div>
         <div className="scroll-clean flex min-w-0 gap-2 overflow-x-auto">
-          {['Todas', ...CATEGORIES].map((item) => (
+          {['Todas', ...state.settings.categories].map((item) => (
             <button key={item} type="button" className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${category === item ? 'bg-ink text-paper' : 'border border-line bg-card text-muted'}`} onClick={() => setCategory(item)}>
               {item}
             </button>
@@ -190,6 +206,25 @@ export function Products() {
         </>
       )}
 
+      <section className="mt-8 rounded-3xl border border-line p-5">
+        <h2 className="font-serif text-2xl">Ajuste de inventario</h2>
+        <p className="mt-2 text-sm text-muted">Suma o resta unidades y deja el motivo. No cambia el costo.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_100px_160px_1fr_auto]">
+          <select className={inputClass} value={adjustId} onChange={(event) => setAdjustId(event.target.value)}>
+            <option value="">Prenda</option>
+            {state.products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.color} · {product.size}</option>)}
+          </select>
+          <input className={inputClass} inputMode="numeric" placeholder="+/-" value={delta || ''} onChange={(event) => setDelta(Number(event.target.value.replace(/[^\d-]/g, '')) || 0)} />
+          <input className={inputClass} type="date" value={adjustDate} onChange={(event) => setAdjustDate(event.target.value)} />
+          <input className={inputClass} placeholder="Motivo" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <Button variant="ghost" onClick={() => {
+            const result = adjust({ productId: adjustId, qtyDelta: delta, reason, date: adjustDate })
+            if (!result.ok) toast(result.error, 'warn')
+            else { toast('Ajuste registrado'); setDelta(0); setReason('') }
+          }}>Ajustar</Button>
+        </div>
+      </section>
+
       <Modal open={open} kicker="Catálogo" title={editing ? 'Editar prenda' : 'Nueva prenda'} onClose={() => setOpen(false)}>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Nombre">
@@ -200,12 +235,12 @@ export function Products() {
           </Field>
           <Field label="Categoría">
             <select className={inputClass} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
-              {CATEGORIES.map((item) => <option key={item}>{item}</option>)}
+              {state.settings.categories.map((item) => <option key={item}>{item}</option>)}
             </select>
           </Field>
           <Field label="Color">
             <input className={inputClass} list="gra-colors" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} />
-            <datalist id="gra-colors">{COLORS.map((color) => <option key={color} value={color} />)}</datalist>
+            <datalist id="gra-colors">{state.settings.colors.map((color) => <option key={color} value={color} />)}</datalist>
           </Field>
           <Field label="Talla">
             <input className={inputClass} value={form.size} onChange={(event) => setForm({ ...form, size: event.target.value })} />
@@ -219,8 +254,25 @@ export function Products() {
           <Field label="Precio de venta" hint={belowCost ? 'Se vende por debajo del costo.' : undefined}>
             <MoneyInput value={form.price} onChange={(price) => setForm({ ...form, price })} />
           </Field>
+          <Field label="Ubicación">
+            <input className={inputClass} value={form.location ?? ''} placeholder="Arriba, abajo, bodega" onChange={(event) => setForm({ ...form, location: event.target.value })} />
+          </Field>
           <Field label="Existencias">
             <input className={inputClass} inputMode="numeric" value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
+          </Field>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Field label="Nueva categoría">
+            <div className="flex gap-2">
+              <input className={inputClass} value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+              <Button variant="ghost" onClick={() => { const result = addCategory(categoryName); if (!result.ok) setError(result.error); else { setCategoryName(''); setForm({ ...form, category: categoryName.trim() }) } }}>Agregar</Button>
+            </div>
+          </Field>
+          <Field label="Nuevo color">
+            <div className="flex gap-2">
+              <input className={inputClass} value={colorName} onChange={(event) => setColorName(event.target.value)} />
+              <Button variant="ghost" onClick={() => { const result = addColor(colorName); if (!result.ok) setError(result.error); else { setColorName(''); setForm({ ...form, color: colorName.trim() }) } }}>Agregar</Button>
+            </div>
           </Field>
         </div>
         <p className="mt-3 text-xs text-muted">Para una entrada formal de mercancía, regístrala en Compras: ahí el costo se promedia y el stock sube solo.</p>

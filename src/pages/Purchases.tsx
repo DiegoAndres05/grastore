@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
-import { Button, Empty, Field, FormError, Modal, PageHeader, inputClass } from '../components/ui'
-import { CATEGORIES } from '../lib/catalog'
-import { dateTime, money } from '../lib/format'
+import { AccountSelect, Button, Empty, Field, FormError, Modal, MoneyInput, PageHeader, inputClass } from '../components/ui'
+import { dateTime, money, todayInput } from '../lib/format'
 import { useStore } from '../store'
 
 type DraftLine = { key: string; productId: string; qty: number; cost: number }
@@ -11,19 +10,26 @@ function emptyLine(): DraftLine {
 }
 
 export function Purchases() {
-  const { state, purchase, toast } = useStore()
+  const { state, purchase, invest, settleInvestment, toast } = useStore()
   const [openId, setOpenId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [supplierId, setSupplierId] = useState('')
   const [note, setNote] = useState('')
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
   const [error, setError] = useState('')
+  const [date, setDate] = useState(todayInput())
+  const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? '')
+  const [investOpen, setInvestOpen] = useState(false)
+  const [investAmount, setInvestAmount] = useState(0)
+  const [investNote, setInvestNote] = useState('')
   const lock = useRef(false)
 
   function start() {
     lock.current = false
     setSupplierId(state.suppliers[0]?.id ?? '')
     setNote('')
+    setDate(todayInput())
+    setAccountId(state.accounts[0]?.id ?? '')
     setLines([emptyLine()])
     setError('')
     setOpen(true)
@@ -42,6 +48,9 @@ export function Purchases() {
     const result = purchase({
       supplierId,
       note,
+      date,
+      accountId: accountId || null,
+      onCredit: !accountId,
       lines: lines.filter((line) => line.productId).map((line) => ({ productId: line.productId, qty: line.qty, cost: line.cost })),
     })
     if (!result.ok) {
@@ -59,8 +68,21 @@ export function Purchases() {
         kicker="Entrada de mercancía"
         title="Compras"
         text="Al recibir un pedido sube el stock y el costo de la prenda se promedia con lo que ya había."
-        action={<Button onClick={start}>Registrar compra</Button>}
+        action={<div className="flex gap-2"><Button variant="ghost" onClick={() => { setInvestOpen(true); setError('') }}>Inversión sin detalle</Button><Button onClick={start}>Registrar compra</Button></div>}
       />
+      {state.investments.length > 0 ? (
+        <section className="mb-8">
+          <h2 className="mb-3 font-serif text-2xl">Inversiones sin prenda</h2>
+          <ul className="space-y-2">
+            {state.investments.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-line px-4 py-3 text-sm">
+                <span>{item.supplierName} · pendiente {money(item.amount - item.allocated)}{item.note ? ` · ${item.note}` : ''}</span>
+                {item.allocated < item.amount ? <button type="button" className="text-brass-deep" onClick={() => settleInvestment(item.id)}>Ya entró al inventario</button> : <span className="text-muted">Recibida</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {state.purchases.length === 0 ? (
         <Empty title="Sin compras" text="La primera entrada de mercancía aparece aquí." />
       ) : (
@@ -94,6 +116,28 @@ export function Purchases() {
         </div>
       )}
 
+      <Modal open={investOpen} kicker="Mercancía" title="Inversión sin detalle" onClose={() => setInvestOpen(false)}>
+        <div className="space-y-4">
+          <Field label="Proveedor">
+            <select className={inputClass} value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+              <option value="">Elegir proveedor</option>
+              {state.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Valor"><MoneyInput value={investAmount} onChange={setInvestAmount} /></Field>
+          <Field label="Pago"><AccountSelect accounts={state.accounts} value={accountId} onChange={setAccountId} allowEmpty emptyLabel="Dejar por pagar" /></Field>
+          <Field label="Nota"><input className={inputClass} value={investNote} onChange={(event) => setInvestNote(event.target.value)} /></Field>
+          <FormError>{error}</FormError>
+          <Button onClick={() => {
+            const result = invest({ supplierId, amount: investAmount, note: investNote, date, accountId: accountId || null, onCredit: !accountId })
+            if (!result.ok) { setError(result.error); return }
+            setInvestOpen(false)
+            setInvestAmount(0)
+            setInvestNote('')
+            toast('Inversión registrada')
+          }}>Guardar</Button>
+        </div>
+      </Modal>
       <Modal open={open} kicker="Mercancía" title="Registrar compra" wide onClose={() => setOpen(false)}>
         <div className="space-y-4">
           <Field label="Proveedor">
@@ -112,7 +156,7 @@ export function Purchases() {
                   <span className="mb-2 block text-[11px] tracking-[0.16em] text-muted uppercase">Prenda</span>
                   <select className={inputClass} value={line.productId} onChange={(event) => chooseProduct(line.key, event.target.value)}>
                     <option value="">Elegir</option>
-                    {CATEGORIES.map((category) => (
+                    {state.settings.categories.map((category) => (
                       <optgroup key={category} label={category}>
                         {state.products.filter((item) => item.active && item.category === category).map((item) => (
                           <option key={item.id} value={item.id}>{item.name} · {item.color} · {item.size}</option>
@@ -156,6 +200,12 @@ export function Purchases() {
           <button type="button" className="text-sm text-brass-deep" onClick={() => setLines((current) => [...current, emptyLine()])}>
             Agregar prenda
           </button>
+          <Field label="Fecha">
+            <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </Field>
+          <Field label="Pago">
+            <AccountSelect accounts={state.accounts} value={accountId} onChange={setAccountId} allowEmpty emptyLabel="Dejar por pagar" />
+          </Field>
           <Field label="Nota">
             <input className={inputClass} value={note} placeholder="Pedido, guía o temporada" onChange={(event) => setNote(event.target.value)} />
           </Field>

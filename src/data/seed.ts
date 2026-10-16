@@ -1,3 +1,4 @@
+import { emptyState } from '../lib/book'
 import type { Customer, PayMethod, Product, Purchase, Sale, State, Supplier } from '../types'
 
 function iso(daysAgo: number, hour: number, minute = 0) {
@@ -252,12 +253,14 @@ export function createSeed(): State {
     }))
 
   return {
+    ...emptyState(),
     products,
     customers,
     suppliers,
     sales: [...sales].reverse(),
     purchases: [...buildPurchases()].reverse(),
     collections,
-    seq: { sale: 1000 + sales.length, purchase: 180 + buyDrafts.length },
+    seq: { ...emptyState().seq, sale: 1000 + sales.length, purchase: 180 + buyDrafts.length },
+    meta: { origin: 'seed', importedAt: null },
   }
 }

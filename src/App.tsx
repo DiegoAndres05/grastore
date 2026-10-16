@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Shell } from './components/Shell'
 import { readPage, type PageId } from './lib/nav'
+import { Accounting } from './pages/Accounting'
 import { Customers } from './pages/Customers'
 import { Dashboard } from './pages/Dashboard'
+import { Expenses } from './pages/Expenses'
+import { ImportBook } from './pages/ImportBook'
+import { Ledger } from './pages/Ledger'
+import { Payables } from './pages/Payables'
 import { Pos } from './pages/Pos'
 import { Products } from './pages/Products'
 import { Purchases } from './pages/Purchases'
@@ -21,6 +26,11 @@ const titles: Record<PageId, string> = {
   cobrar: 'Cartera',
   clientes: 'Clientes',
   proveedores: 'Proveedores',
+  caja: 'Caja',
+  gastos: 'Gastos',
+  pagar: 'Por pagar',
+  contabilidad: 'Contabilidad',
+  importar: 'Importar',
 }
 
 export default function App() {
@@ -84,6 +94,11 @@ export default function App() {
           {page === 'cobrar' && <Receivables />}
           {page === 'clientes' && <Customers />}
           {page === 'proveedores' && <Suppliers />}
+          {page === 'caja' && <Ledger />}
+          {page === 'gastos' && <Expenses />}
+          {page === 'pagar' && <Payables />}
+          {page === 'contabilidad' && <Accounting />}
+          {page === 'importar' && <ImportBook />}
         </div>
       ) : null}
     </Shell>

@@ -37,10 +37,17 @@ export const SWATCH: Record<string, string> = {
 
 export const METHOD_LABEL: Record<PayMethod, string> = {
   efectivo: 'Efectivo',
+  nequi: 'Nequi',
+  bancolombia: 'Bancolombia',
   tarjeta: 'Tarjeta',
   transferencia: 'Transferencia',
   credito: 'Crédito',
 }
+
+export const EXPENSE_CATEGORIES = ['Sueldos', 'Domicilios', 'Envíos', 'Servicios', 'Comida', 'Otros'] as const
+
+export const PAY_METHODS: PayMethod[] = ['efectivo', 'nequi', 'bancolombia', 'tarjeta', 'credito']
+export const CASH_METHODS: Exclude<PayMethod, 'credito'>[] = ['efectivo', 'nequi', 'bancolombia', 'tarjeta']
 
 export function swatch(color: string) {
   return SWATCH[color] ?? '#c4b39a'
