@@ -168,12 +168,12 @@ describe('caja, gastos y patrimonio', () => {
     if (!expense.ok) return
     state = expense.data.state
 
-    const capital = applyCapital(state, { kind: 'prestamo', person: 'Tio', amount: 300_000, accountId: 'acct-bancolombia' })
+    const capital = applyCapital(state, { kind: 'prestamo', person: 'Socio Ejemplo', amount: 300_000, accountId: 'acct-bancolombia' })
     expect(capital.ok).toBe(true)
     if (!capital.ok) return
     state = capital.data.state
 
-    const loan = applyLoan(state, { person: 'Aponte', amount: 50_000, accountId: 'acct-nequi' })
+    const loan = applyLoan(state, { person: 'Prestatario Ejemplo', amount: 50_000, accountId: 'acct-nequi' })
     expect(loan.ok).toBe(true)
     if (!loan.ok) return
     state = loan.data.state
