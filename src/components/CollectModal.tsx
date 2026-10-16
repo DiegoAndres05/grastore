@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ACCOUNT_LABEL, ACCOUNTS } from '../lib/books'
-import { money } from '../lib/format'
-import type { CashAccount } from '../types'
+import { CASH_METHODS, METHOD_LABEL } from '../lib/catalog'
+import { money, todayInput } from '../lib/format'
+import type { CashMethod } from '../types'
 import { useStore } from '../store'
 import { Button, Field, FormError, Modal, MoneyInput, inputClass } from './ui'
+
+const methods: CashMethod[] = CASH_METHODS
 
 export function CollectModal({
   open,
@@ -20,8 +22,9 @@ export function CollectModal({
   const lock = useRef(false)
   const [chosen, setChosen] = useState(customerId ?? '')
   const [amount, setAmount] = useState(0)
-  const [account, setAccount] = useState<CashAccount>('efectivo')
+  const [method, setMethod] = useState<CashMethod>('efectivo')
   const [note, setNote] = useState('')
+  const [date, setDate] = useState(todayInput())
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export function CollectModal({
     const customer = state.customers.find((item) => item.id === id)
     setChosen(id)
     setAmount(sale?.balance ?? customer?.balance ?? 0)
-    setAccount('efectivo')
+    setMethod('efectivo')
     setNote('')
     setError('')
   }, [open, customerId, saleId, state.sales, state.customers])
@@ -40,10 +43,10 @@ export function CollectModal({
   const debtors = state.customers.filter((customer) => customer.balance > 0 || customer.id === chosen)
   const customer = state.customers.find((item) => item.id === chosen)
 
-  function submit() {
+  async function submit() {
     if (lock.current) return
     lock.current = true
-    const result = collect({ customerId: chosen, amount, account, note, saleId })
+    const result = await collect({ customerId: chosen, amount, method, note, saleId, date })
     if (!result.ok) {
       lock.current = false
       setError(result.error)
@@ -74,19 +77,22 @@ export function CollectModal({
         <Field label="Valor" hint={customer ? `Saldo ${money(customer.balance)} · cupo ${money(customer.creditLimit)}` : undefined}>
           <MoneyInput value={amount} onChange={setAmount} />
         </Field>
-        <Field label="Entra a">
-          <div className="grid grid-cols-2 gap-2">
-            {ACCOUNTS.map((item) => (
+        <Field label="Forma de pago">
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
+            {methods.map((item) => (
               <button
                 key={item}
                 type="button"
-                className={`rounded-xl border px-3 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-paper'}`}
-                onClick={() => setAccount(item)}
+                className={`rounded-xl border px-3 py-2 text-sm ${method === item ? 'border-ink bg-ink text-paper' : 'border-line bg-paper'}`}
+                onClick={() => setMethod(item)}
               >
-                {ACCOUNT_LABEL[item]}
+                {METHOD_LABEL[item]}
               </button>
             ))}
           </div>
+        </Field>
+        <Field label="Fecha">
+          <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
         <Field label="Nota">
           <input className={inputClass} value={note} placeholder="Opcional" onChange={(event) => setNote(event.target.value)} />

@@ -1,21 +1,19 @@
 import { useState, type PointerEvent } from 'react'
 import { swatch } from '../lib/catalog'
-import { balanceSheet, periodResult } from '../lib/books'
-import { greeting, isSameDay, longDate, money, percent, relativeDay } from '../lib/format'
+import { greeting, isRetailSale, isSameDay, isSameMonth, longDate, money, percent, relativeDay } from '../lib/format'
+import { availableUnits } from '../lib/money'
 import { go } from '../lib/nav'
 import { useStore } from '../store'
 import { CountUp } from '../components/motion'
 import { Button } from '../components/ui'
 
-function Trend({ sales }: { sales: { date: string; total: number; returnedAt: string | null }[] }) {
+function Trend({ sales, showStats }: { sales: { date: string; total: number }[]; showStats: boolean }) {
   const [hover, setHover] = useState<number | null>(null)
   const points = Array.from({ length: 14 }, (_, index) => {
     const date = new Date()
     date.setHours(12, 0, 0, 0)
     date.setDate(date.getDate() - (13 - index))
-    const issued = sales.filter((sale) => isSameDay(sale.date, date)).reduce((sum, sale) => sum + sale.total, 0)
-    const reversed = sales.filter((sale) => sale.returnedAt && isSameDay(sale.returnedAt, date)).reduce((sum, sale) => sum + sale.total, 0)
-    const total = issued - reversed
+    const total = sales.filter((sale) => isSameDay(sale.date, date)).reduce((sum, sale) => sum + sale.total, 0)
     const label = new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short' }).format(date)
     return { label, total }
   })
@@ -54,7 +52,7 @@ function Trend({ sales }: { sales: { date: string; total: number; returnedAt: st
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="flex items-baseline gap-3">
           <p className="text-[11px] tracking-[0.18em] text-muted uppercase">Últimos 14 días</p>
-          <button type="button" className="text-xs text-brass-deep" onClick={() => go('estadisticas')}>Ampliar</button>
+          {showStats ? <button type="button" className="text-xs text-brass-deep" onClick={() => go('estadisticas')}>Ampliar</button> : null}
         </div>
         <p className="text-sm text-muted tabular-nums">{active ? `${active.label} · ${money(active.total)}` : money(points.reduce((sum, point) => sum + point.total, 0))}</p>
       </div>
@@ -87,28 +85,37 @@ function Trend({ sales }: { sales: { date: string; total: number; returnedAt: st
 }
 
 export function Dashboard() {
-  const { state } = useStore()
-  const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-  const today = periodResult(state, todayStart, todayEnd)
-  const month = periodResult(state, monthStart, monthEnd)
-  const books = balanceSheet(state)
+  const { state, can } = useStore()
+  const retail = state.sales.filter(isRetailSale)
+  const todaySales = retail.filter((sale) => isSameDay(sale.date))
+  const todayTotal = todaySales.reduce((sum, sale) => sum + sale.total, 0)
+  const todayUnits = todaySales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0)
+  const monthSales = retail.filter((sale) => isSameMonth(sale.date))
+  const monthTotal = monthSales.reduce((sum, sale) => sum + sale.total, 0)
+  const monthCost = monthSales.reduce((sum, sale) => sum + sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0)
+  const monthMargin = monthTotal - monthCost
   const stock = state.products.filter((product) => product.active)
+  const stockCost = stock.reduce((sum, product) => sum + product.stock * product.cost, 0)
   const stockRetail = stock.reduce((sum, product) => sum + product.stock * product.price, 0)
-  const low = stock.filter((product) => product.stock <= product.minStock).sort((a, b) => a.stock - b.stock)
-  const open = state.sales.filter((sale) => sale.status === 'activa' && sale.balance > 0).sort((a, b) => a.date.localeCompare(b.date))
-  const average = today.tickets ? Math.round(today.sales / today.tickets) : 0
+  const low = stock.filter((product) => availableUnits(product) <= product.minStock).sort((a, b) => availableUnits(a) - availableUnits(b))
+  const open = state.sales.filter((sale) => sale.balance > 0).sort((a, b) => a.date.localeCompare(b.date))
+  const receivable = open.reduce((sum, sale) => sum + sale.balance, 0)
+  const average = todaySales.length ? Math.round(todayTotal / todaySales.length) : 0
 
-  const stats = [
-    { label: 'Mes en curso', value: month.sales, kind: 'money' as const, hint: `${month.tickets} ventas` },
-    { label: 'Margen del mes', value: month.gross, kind: 'money' as const, hint: month.sales ? percent(month.gross / month.sales) : 'Sin ventas' },
-    { label: 'Plata real', value: books.cash, kind: 'money' as const, hint: 'Nequi, efectivo, banco y tarjeta' },
-    { label: 'Inventario', value: books.inventory, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
-    { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
-  ]
+  const stockUnits = stock.reduce((sum, product) => sum + product.stock, 0)
+  const stats = can('products.costs')
+    ? [
+        { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
+        { label: 'Margen del mes', value: monthMargin, kind: 'money' as const, hint: monthTotal ? percent(monthMargin / monthTotal) : 'Sin ventas' },
+        { label: 'Inventario', value: stockCost, kind: 'money' as const, hint: `Venta potencial ${money(stockRetail)}` },
+        { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
+      ]
+    : [
+        { label: 'Mes en curso', value: monthTotal, kind: 'money' as const, hint: `${monthSales.length} ventas` },
+        { label: 'Unidades del mes', value: monthSales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0), kind: 'int' as const, hint: 'Sin costo' },
+        { label: 'Existencias', value: stockUnits, kind: 'int' as const, hint: `${stock.length} prendas activas` },
+        { label: 'Por reponer', value: low.length, kind: 'int' as const, hint: low[0] ? low[0].name : 'El piso está cubierto' },
+      ]
 
   return (
     <div>
@@ -116,7 +123,7 @@ export function Dashboard() {
         <div>
           <p className="text-[11px] tracking-[0.22em] text-brass uppercase">La grasa que nunca falla · Cartagena</p>
           <h1 className="mt-3 font-serif text-4xl leading-none tracking-wide uppercase sm:text-6xl">{greeting()}</h1>
-          <p className="mt-2 text-sm text-muted">{longDate()} · {today.units} {today.units === 1 ? 'prenda salida hoy' : 'prendas salidas hoy'}</p>
+          <p className="mt-2 text-sm text-muted">{longDate()} · {todayUnits} {todayUnits === 1 ? 'prenda salida hoy' : 'prendas salidas hoy'}</p>
         </div>
         <Button onClick={() => go('vender')}>Nueva venta</Button>
       </header>
@@ -125,18 +132,18 @@ export function Dashboard() {
         <section className="rounded-3xl border border-line bg-card p-6 sm:p-8 lg:col-span-8">
           <div className="flex items-start justify-between gap-4">
             <p className="text-[11px] tracking-[0.18em] text-muted uppercase">Ventas de hoy</p>
-            <p className="text-sm text-muted">{today.tickets} {today.tickets === 1 ? 'ticket' : 'tickets'}</p>
+            <p className="text-sm text-muted">{todaySales.length} {todaySales.length === 1 ? 'ticket' : 'tickets'}</p>
           </div>
-          <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={today.sales} /></p>
+          <p className="mt-4 font-serif text-4xl tracking-tight tabular-nums sm:text-6xl"><CountUp value={todayTotal} /></p>
           <p className="mt-2 text-sm text-muted">Ticket promedio {money(average)}</p>
           <div className="mt-8">
-            <Trend sales={state.sales} />
+            <Trend sales={retail} showStats={can('reports.read')} />
           </div>
         </section>
 
         <section className="flex flex-col rounded-3xl bg-brass p-6 text-espresso sm:p-8 lg:col-span-4">
           <p className="text-[11px] tracking-[0.18em] uppercase">Por cobrar</p>
-          <p className="mt-4 font-serif text-4xl tracking-wide tabular-nums sm:text-5xl"><CountUp value={books.receivable} /></p>
+          <p className="mt-4 font-serif text-4xl tracking-wide tabular-nums sm:text-5xl"><CountUp value={receivable} /></p>
           <p className="mt-2 text-sm">{open.length} {open.length === 1 ? 'cuenta abierta' : 'cuentas abiertas'}</p>
           <ul className="mt-8 flex-1 space-y-4">
             {open.slice(0, 4).map((sale) => (
@@ -156,7 +163,7 @@ export function Dashboard() {
         </section>
       </div>
 
-      <section className="mt-5 grid border-y border-line sm:grid-cols-2 lg:grid-cols-5">
+      <section className="mt-5 grid border-y border-line sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat, index) => (
           <div key={stat.label} className={`px-1 py-6 sm:px-6 ${index === 0 ? 'sm:pl-1' : 'lg:border-l lg:border-line'}`}>
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{stat.label}</p>
@@ -173,7 +180,7 @@ export function Dashboard() {
             <button type="button" className="text-sm text-brass-deep" onClick={() => go('ventas')}>Ver todas</button>
           </div>
           <ul>
-            {state.sales.slice(0, 6).map((sale) => (
+            {retail.slice(0, 6).map((sale) => (
               <li key={sale.id} className="flex items-center justify-between gap-3 border-t border-line py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm">{sale.customerName}</p>
@@ -197,7 +204,7 @@ export function Dashboard() {
                   <p className="truncate text-sm">{product.name}</p>
                   <p className="mt-0.5 text-xs text-muted">{product.color} · {product.size}</p>
                 </div>
-                <p className={`text-sm tabular-nums ${product.stock === 0 ? 'text-danger' : 'text-warn'}`}>{product.stock} und</p>
+                <p className={`text-sm tabular-nums ${availableUnits(product) === 0 ? 'text-danger' : 'text-warn'}`}>{availableUnits(product)} und</p>
               </li>
             ))}
             {low.length === 0 ? <li className="border-t border-line py-6 text-sm text-muted">Ninguna prenda está bajo el mínimo.</li> : null}

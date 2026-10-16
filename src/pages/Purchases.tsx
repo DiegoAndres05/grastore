@@ -1,9 +1,6 @@
 import { useRef, useState } from 'react'
-import { Button, Empty, Field, FormError, Modal, PageHeader, inputClass } from '../components/ui'
-import { ACCOUNT_LABEL, ACCOUNTS } from '../lib/books'
-import { CATEGORIES } from '../lib/catalog'
-import { dateTime, money } from '../lib/format'
-import type { CashAccount } from '../types'
+import { AccountSelect, Button, Empty, Field, FormError, Modal, MoneyInput, PageHeader, inputClass } from '../components/ui'
+import { dateTime, money, todayInput } from '../lib/format'
 import { useStore } from '../store'
 
 type DraftLine = { key: string; productId: string; qty: number; cost: number }
@@ -13,26 +10,27 @@ function emptyLine(): DraftLine {
 }
 
 export function Purchases() {
-  const { state, purchase, toast } = useStore()
+  const { state, purchase, invest, settleInvestment, toast } = useStore()
   const [openId, setOpenId] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [supplierId, setSupplierId] = useState('')
   const [note, setNote] = useState('')
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()])
-  const [paidNow, setPaidNow] = useState(true)
-  const [paid, setPaid] = useState(0)
-  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [error, setError] = useState('')
+  const [date, setDate] = useState(todayInput())
+  const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? '')
+  const [investOpen, setInvestOpen] = useState(false)
+  const [investAmount, setInvestAmount] = useState(0)
+  const [investNote, setInvestNote] = useState('')
   const lock = useRef(false)
 
   function start() {
     lock.current = false
     setSupplierId(state.suppliers[0]?.id ?? '')
     setNote('')
+    setDate(todayInput())
+    setAccountId(state.accounts[0]?.id ?? '')
     setLines([emptyLine()])
-    setPaidNow(true)
-    setPaid(0)
-    setAccount('efectivo')
     setError('')
     setOpen(true)
   }
@@ -42,24 +40,25 @@ export function Purchases() {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, productId, cost: product?.cost ?? line.cost } : line)))
   }
 
-  const total = lines.filter((line) => line.productId).reduce((sum, line) => sum + line.qty * line.cost, 0)
+  const total = lines.reduce((sum, line) => sum + line.qty * line.cost, 0)
 
-  function save() {
+  async function save() {
     if (lock.current) return
     lock.current = true
-    const result = purchase({
+    const result = await purchase({
       supplierId,
       note,
+      date,
+      accountId: accountId || null,
+      onCredit: !accountId,
       lines: lines.filter((line) => line.productId).map((line) => ({ productId: line.productId, qty: line.qty, cost: line.cost })),
-      paid: paidNow ? total : Math.min(paid, total),
-      account: (paidNow || paid > 0) ? account : null,
     })
     if (!result.ok) {
       lock.current = false
       setError(result.error)
       return
     }
-    toast(result.data.balance > 0 ? `${result.data.number} recibida. Quedó por pagar ${money(result.data.balance)}.` : `${result.data.number} recibida y pagada.`)
+    toast(`${result.data.number} recibida. El inventario ya quedó actualizado.`)
     setOpen(false)
   }
 
@@ -69,8 +68,21 @@ export function Purchases() {
         kicker="Entrada de mercancía"
         title="Compras"
         text="Al recibir un pedido sube el stock y el costo de la prenda se promedia con lo que ya había."
-        action={<Button onClick={start}>Registrar compra</Button>}
+        action={<div className="flex gap-2"><Button variant="ghost" onClick={() => { setInvestOpen(true); setError('') }}>Inversión sin detalle</Button><Button onClick={start}>Registrar compra</Button></div>}
       />
+      {state.investments.length > 0 ? (
+        <section className="mb-8">
+          <h2 className="mb-3 font-serif text-2xl">Inversiones sin prenda</h2>
+          <ul className="space-y-2">
+            {state.investments.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-line px-4 py-3 text-sm">
+                <span>{item.supplierName} · pendiente {money(item.amount - item.allocated)}{item.note ? ` · ${item.note}` : ''}</span>
+                {item.allocated < item.amount ? <button type="button" className="text-brass-deep" onClick={() => { void settleInvestment(item.id).then((result) => { if (!result.ok) toast(result.error, 'warn'); else toast('Inversión recibida') }) }}>Ya entró al inventario</button> : <span className="text-muted">Recibida</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {state.purchases.length === 0 ? (
         <Empty title="Sin compras" text="La primera entrada de mercancía aparece aquí." />
       ) : (
@@ -84,7 +96,7 @@ export function Purchases() {
                   <div className="min-w-0">
                     <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{item.number} · {dateTime(item.date)}</p>
                     <p className="mt-1 font-serif text-xl">{item.supplierName}</p>
-                    <p className="mt-1 text-sm text-muted">{units} unidades{item.balance > 0 ? ` · por pagar ${money(item.balance)}` : ''}{item.note ? ` · ${item.note}` : ''}</p>
+                    <p className="mt-1 text-sm text-muted">{units} unidades{item.note ? ` · ${item.note}` : ''}</p>
                   </div>
                   <p className="shrink-0 font-serif text-xl tabular-nums">{money(item.total)}</p>
                 </button>
@@ -104,6 +116,29 @@ export function Purchases() {
         </div>
       )}
 
+      <Modal open={investOpen} kicker="Mercancía" title="Inversión sin detalle" onClose={() => setInvestOpen(false)}>
+        <div className="space-y-4">
+          <Field label="Proveedor">
+            <select className={inputClass} value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+              <option value="">Elegir proveedor</option>
+              {state.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Valor"><MoneyInput value={investAmount} onChange={setInvestAmount} /></Field>
+          <Field label="Pago"><AccountSelect accounts={state.accounts} value={accountId} onChange={setAccountId} allowEmpty emptyLabel="Dejar por pagar" /></Field>
+          <Field label="Nota"><input className={inputClass} value={investNote} onChange={(event) => setInvestNote(event.target.value)} /></Field>
+          <FormError>{error}</FormError>
+          <Button onClick={() => {
+            void invest({ supplierId, amount: investAmount, note: investNote, date, accountId: accountId || null, onCredit: !accountId }).then((result) => {
+              if (!result.ok) { setError(result.error); return }
+              setInvestOpen(false)
+              setInvestAmount(0)
+              setInvestNote('')
+              toast('Inversión registrada')
+            })
+          }}>Guardar</Button>
+        </div>
+      </Modal>
       <Modal open={open} kicker="Mercancía" title="Registrar compra" wide onClose={() => setOpen(false)}>
         <div className="space-y-4">
           <Field label="Proveedor">
@@ -122,7 +157,7 @@ export function Purchases() {
                   <span className="mb-2 block text-[11px] tracking-[0.16em] text-muted uppercase">Prenda</span>
                   <select className={inputClass} value={line.productId} onChange={(event) => chooseProduct(line.key, event.target.value)}>
                     <option value="">Elegir</option>
-                    {CATEGORIES.map((category) => (
+                    {state.settings.categories.map((category) => (
                       <optgroup key={category} label={category}>
                         {state.products.filter((item) => item.active && item.category === category).map((item) => (
                           <option key={item.id} value={item.id}>{item.name} · {item.color} · {item.size}</option>
@@ -166,6 +201,12 @@ export function Purchases() {
           <button type="button" className="text-sm text-brass-deep" onClick={() => setLines((current) => [...current, emptyLine()])}>
             Agregar prenda
           </button>
+          <Field label="Fecha">
+            <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </Field>
+          <Field label="Pago">
+            <AccountSelect accounts={state.accounts} value={accountId} onChange={setAccountId} allowEmpty emptyLabel="Dejar por pagar" />
+          </Field>
           <Field label="Nota">
             <input className={inputClass} value={note} placeholder="Pedido, guía o temporada" onChange={(event) => setNote(event.target.value)} />
           </Field>
@@ -173,22 +214,6 @@ export function Purchases() {
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Total de la compra</p>
             <p className="font-serif text-3xl tabular-nums">{money(total)}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" className={`rounded-xl border px-3 py-2 text-sm ${paidNow ? 'border-ink bg-ink text-paper' : 'border-line'}`} onClick={() => setPaidNow(true)}>Pagada ahora</button>
-            <button type="button" className={`rounded-xl border px-3 py-2 text-sm ${paidNow ? 'border-line' : 'border-ink bg-ink text-paper'}`} onClick={() => setPaidNow(false)}>Queda fiada</button>
-          </div>
-          {paidNow ? null : (
-            <Field label="Abono ahora" hint={`Queda por pagar ${money(Math.max(0, total - paid))}`}>
-              <input className={inputClass} inputMode="numeric" value={paid ? new Intl.NumberFormat('es-CO').format(paid) : ''} placeholder="0" onChange={(event) => setPaid(Number(event.target.value.replace(/\D/g, '')) || 0)} />
-            </Field>
-          )}
-          {paidNow || paid > 0 ? (
-            <Field label="Sale de">
-              <select className={inputClass} value={account} onChange={(event) => setAccount(event.target.value as CashAccount)}>
-                {ACCOUNTS.map((item) => <option key={item} value={item}>{ACCOUNT_LABEL[item]}</option>)}
-              </select>
-            </Field>
-          ) : null}
           <FormError>{error}</FormError>
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>

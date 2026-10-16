@@ -1,17 +1,17 @@
 import { Minus, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ACCOUNT_LABEL } from '../lib/books'
-import { CATEGORIES, METHOD_LABEL, norm, swatch } from '../lib/catalog'
-import { money } from '../lib/format'
-import type { CashAccount, Customer, PayMethod, Product, Sale } from '../types'
+import { METHOD_LABEL, PAY_METHODS, norm, swatch } from '../lib/catalog'
+import { money, nextCutoff, todayInput } from '../lib/format'
+import { availableUnits } from '../lib/money'
+import type { Customer, PayMethod, Product, Sale } from '../types'
 import { useStore } from '../store'
 import { Button, FormError, Modal } from '../components/ui'
 
-type CartLine = { productId: string; qty: number }
-const methods: PayMethod[] = ['efectivo', 'tarjeta', 'transferencia', 'credito']
+type CartLine = { productId: string; qty: number; price: number }
+const methods: PayMethod[] = PAY_METHODS
 
 export function Pos() {
-  const { state, checkout } = useStore()
+  const { state, checkout, layaway, toast } = useStore()
   const searchRef = useRef<HTMLInputElement>(null)
   const lock = useRef(false)
   const [query, setQuery] = useState('')
@@ -20,10 +20,11 @@ export function Pos() {
   const [customerId, setCustomerId] = useState('')
   const [discount, setDiscount] = useState(0)
   const [method, setMethod] = useState<PayMethod>('efectivo')
-  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [paid, setPaid] = useState(0)
   const [tendered, setTendered] = useState(0)
   const [note, setNote] = useState('')
+  const [when, setWhen] = useState(todayInput())
+  const [dueDate, setDueDate] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [receipt, setReceipt] = useState<Sale | null>(null)
@@ -56,7 +57,7 @@ export function Pos() {
   const detailed = cart
     .map((line) => ({ ...line, product: state.products.find((product) => product.id === line.productId) }))
     .filter((line) => line.product)
-  const subtotal = detailed.reduce((sum, line) => sum + line.qty * (line.product?.price ?? 0), 0)
+  const subtotal = detailed.reduce((sum, line) => sum + line.qty * line.price, 0)
   const safeDiscount = Math.min(discount, subtotal)
   const total = subtotal - safeDiscount
   const customer = state.customers.find((item) => item.id === customerId)
@@ -76,8 +77,9 @@ export function Pos() {
     const product = state.products.find((item) => item.id === productId)
     if (!product) return
     const current = cart.find((line) => line.productId === productId)?.qty ?? 0
-    if (product.stock <= 0 || current + 1 > product.stock) {
-      setNotice(product.stock <= 0 ? `${product.name} está agotada` : `Solo quedan ${product.stock} de ${product.name}`)
+    const free = availableUnits(product)
+    if (free <= 0 || current + 1 > free) {
+      setNotice(free <= 0 ? `${product.name} está agotada` : `Solo quedan ${free} de ${product.name}`)
       return
     }
     setNotice('')
@@ -85,7 +87,7 @@ export function Pos() {
     setCart((lines) =>
       lines.some((line) => line.productId === productId)
         ? lines.map((line) => (line.productId === productId ? { ...line, qty: line.qty + 1 } : line))
-        : [...lines, { productId, qty: 1 }],
+        : [...lines, { productId, qty: 1, price: product.price }],
     )
   }
 
@@ -96,26 +98,31 @@ export function Pos() {
       setCart((lines) => lines.filter((line) => line.productId !== productId))
       return
     }
-    if (qty > product.stock) {
-      setNotice(`Solo quedan ${product.stock} de ${product.name}`)
+    if (qty > availableUnits(product)) {
+      setNotice(`Solo quedan ${availableUnits(product)} de ${product.name}`)
       return
     }
     setNotice('')
     setCart((lines) => lines.map((line) => (line.productId === productId ? { ...line, qty } : line)))
   }
 
-  function cobrar() {
+  function setPrice(productId: string, price: number) {
+    setCart((lines) => lines.map((line) => (line.productId === productId ? { ...line, price } : line)))
+  }
+
+  async function cobrar() {
     if (lock.current) return
     lock.current = true
-    const result = checkout({
-      lines: cart,
+    const result = await checkout({
+      lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
       customerId: customerId || null,
       discount: safeDiscount,
       method,
-      account,
       paid: method === 'credito' ? Math.min(paid, total) : total,
       tendered,
       note,
+      date: when,
+      dueDate: method === 'credito' ? dueDate || null : null,
     })
     if (!result.ok) {
       lock.current = false
@@ -131,6 +138,32 @@ export function Pos() {
     setError('')
     setTicketOpen(false)
     setReceipt(result.data)
+  }
+
+  async function apartar() {
+    if (!customerId) {
+      setError('El plan separe necesita un cliente')
+      return
+    }
+    const result = await layaway({
+      customerId,
+      lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
+      deposit: Math.min(paid, total),
+      accountId: 'acct-efectivo',
+      dueDate: dueDate || null,
+      date: when,
+      note,
+    })
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setCart([])
+    setPaid(0)
+    setNote('')
+    setError('')
+    setTicketOpen(false)
+    toast(`Apartado ${result.data.number}`)
   }
 
   useEffect(() => {
@@ -159,8 +192,6 @@ export function Pos() {
       setDiscount={setDiscount}
       method={method}
       setMethod={setMethod}
-      account={account}
-      setAccount={setAccount}
       tendered={tendered}
       setTendered={setTendered}
       paid={paid}
@@ -175,7 +206,13 @@ export function Pos() {
       notice={notice}
       error={error}
       onCharge={cobrar}
+      onLayaway={apartar}
       setQty={setQty}
+      setPrice={setPrice}
+      when={when}
+      setWhen={setWhen}
+      dueDate={dueDate}
+      setDueDate={setDueDate}
     />
   )
   const charge = (
@@ -190,6 +227,9 @@ export function Pos() {
       <Button className="mt-4 w-full" disabled={detailed.length === 0} onClick={cobrar}>
         Cobrar
       </Button>
+      <button type="button" className="mt-3 w-full text-sm text-brass-deep" disabled={detailed.length === 0} onClick={apartar}>
+        Apartar (plan separe)
+      </button>
     </>
   )
 
@@ -213,7 +253,7 @@ export function Pos() {
             <kbd className="absolute top-1/2 right-3 hidden -translate-y-1/2 rounded-md border border-line px-1.5 py-0.5 text-[10px] text-muted sm:block">/</kbd>
           </div>
           <div className="scroll-clean mt-4 flex min-w-0 gap-2 overflow-x-auto pb-1">
-            {['Todas', ...CATEGORIES].map((item) => (
+            {['Todas', ...state.settings.categories].map((item) => (
               <button
                 key={item}
                 type="button"
@@ -230,7 +270,8 @@ export function Pos() {
             <div key={`${category}-${query}`} className="cascade mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {products.map((product, index) => {
                 const inCart = cart.find((line) => line.productId === product.id)?.qty ?? 0
-                const gone = product.stock <= 0
+                const free = availableUnits(product)
+                const gone = free <= 0
                 return (
                   <button
                     key={product.id}
@@ -248,8 +289,8 @@ export function Pos() {
                     <p className="mt-1 text-sm text-muted">{product.color} · {product.size}</p>
                     <div className="mt-4 flex items-end justify-between">
                       <p className="tabular-nums">{money(product.price)}</p>
-                      <p className={`text-xs ${product.stock <= product.minStock ? 'text-warn' : 'text-muted'}`}>
-                        {gone ? 'Agotada' : inCart ? `${inCart} en ticket` : `${product.stock} und`}
+                      <p className={`text-xs ${free <= product.minStock ? 'text-warn' : 'text-muted'}`}>
+                        {gone ? 'Agotada' : inCart ? `${inCart} en ticket` : `${free} und`}
                       </p>
                     </div>
                   </button>
@@ -291,7 +332,7 @@ export function Pos() {
       <Modal open={receipt != null} kicker="Venta registrada" title={receipt?.number ?? ''} onClose={() => setReceipt(null)}>
         {receipt ? (
           <div>
-            <p className="text-sm text-muted">{receipt.customerName} · {METHOD_LABEL[receipt.method]}{receipt.account && receipt.paid > 0 ? ` · ${ACCOUNT_LABEL[receipt.account]} ${money(receipt.paid)}` : ''}</p>
+            <p className="text-sm text-muted">{receipt.customerName} · {METHOD_LABEL[receipt.method]}</p>
             <ul className="mt-5 space-y-2">
               {receipt.lines.map((line) => (
                 <li key={line.productId} className="flex items-start justify-between gap-3 text-sm">
@@ -318,7 +359,7 @@ export function Pos() {
   )
 }
 
-type TicketLine = { productId: string; qty: number; product?: Product }
+type TicketLine = { productId: string; qty: number; price: number; product?: Product }
 
 function TicketBody({
   detailed,
@@ -329,8 +370,6 @@ function TicketBody({
   setDiscount,
   method,
   setMethod,
-  account,
-  setAccount,
   tendered,
   setTendered,
   paid,
@@ -345,7 +384,13 @@ function TicketBody({
   notice,
   error,
   onCharge,
+  onLayaway,
   setQty,
+  setPrice,
+  when,
+  setWhen,
+  dueDate,
+  setDueDate,
   docked = false,
 }: {
   detailed: TicketLine[]
@@ -356,8 +401,6 @@ function TicketBody({
   setDiscount: (value: number) => void
   method: PayMethod
   setMethod: (value: PayMethod) => void
-  account: CashAccount
-  setAccount: (value: CashAccount) => void
   tendered: number
   setTendered: (value: number) => void
   paid: number
@@ -372,7 +415,13 @@ function TicketBody({
   notice: string
   error: string
   onCharge: () => void
+  onLayaway: () => void
   setQty: (productId: string, qty: number) => void
+  setPrice: (productId: string, price: number) => void
+  when: string
+  setWhen: (value: string) => void
+  dueDate: string
+  setDueDate: (value: string) => void
   docked?: boolean
 }) {
   return (
@@ -399,7 +448,16 @@ function TicketBody({
                   <Plus size={12} />
                 </button>
               </div>
-              <p className="shrink-0 text-right text-sm tabular-nums">{money(line.qty * (line.product?.price ?? 0))}</p>
+              <div className="shrink-0 text-right">
+                <input
+                  inputMode="numeric"
+                  aria-label={`Precio de ${line.product?.name ?? 'prenda'}`}
+                  className="w-24 rounded-lg border border-line bg-card px-2 py-1 text-right text-sm tabular-nums"
+                  value={new Intl.NumberFormat('es-CO').format(line.price)}
+                  onChange={(event) => setPrice(line.productId, Number(event.target.value.replace(/\D/g, '')) || 0)}
+                />
+                <p className="mt-1 text-[11px] text-muted">{money(line.qty * line.price)}</p>
+              </div>
             </li>
           ))}
         </ul>
@@ -412,6 +470,8 @@ function TicketBody({
           <option key={item.id} value={item.id}>{item.name}</option>
         ))}
       </select>
+      <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Fecha</label>
+      <input className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" type="date" value={when} onChange={(event) => setWhen(event.target.value)} />
       <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Descuento</label>
       <input
         inputMode="numeric"
@@ -426,27 +486,12 @@ function TicketBody({
             key={item}
             type="button"
             className={`rounded-xl border px-2 py-2 text-center text-sm leading-tight ${method === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`}
-            onClick={() => {
-              setMethod(item)
-              if (item === 'efectivo') setAccount('efectivo')
-              if (item === 'tarjeta') setAccount('tarjeta')
-              if (item === 'transferencia') setAccount('nequi')
-              if (item === 'credito') setAccount('efectivo')
-            }}
+            onClick={() => setMethod(item)}
           >
             {METHOD_LABEL[item]}
           </button>
         ))}
       </div>
-      {method === 'transferencia' ? (
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {(['nequi', 'bancolombia'] as const).map((item) => (
-            <button key={item} type="button" className={`rounded-xl border px-2 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`} onClick={() => setAccount(item)}>
-              {ACCOUNT_LABEL[item]}
-            </button>
-          ))}
-        </div>
-      ) : null}
       {method === 'efectivo' ? (
         <div className="mt-4">
           <label className="text-[11px] tracking-[0.16em] text-muted uppercase">Efectivo recibido</label>
@@ -473,15 +518,12 @@ function TicketBody({
             Queda a crédito {money(creditDue)}
             {customer ? ` · cupo libre ${money(Math.max(0, room))}` : ''}
           </p>
-          {paid > 0 ? (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {(['efectivo', 'nequi', 'bancolombia', 'tarjeta'] as const).map((item) => (
-                <button key={item} type="button" className={`rounded-xl border px-2 py-2 text-sm ${account === item ? 'border-ink bg-ink text-paper' : 'border-line bg-card'}`} onClick={() => setAccount(item)}>
-                  {ACCOUNT_LABEL[item]}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <label className="mt-3 block text-[11px] tracking-[0.16em] text-muted uppercase">Corte</label>
+          <select className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={dueDate} onChange={(event) => setDueDate(event.target.value)}>
+            <option value="">Sin fecha</option>
+            <option value={nextCutoff(15)}>15 · {nextCutoff(15)}</option>
+            <option value={nextCutoff(30)}>30 · {nextCutoff(30)}</option>
+          </select>
         </div>
       ) : null}
       <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Nota</label>
@@ -498,6 +540,9 @@ function TicketBody({
           <Button className="mt-4 w-full" disabled={detailed.length === 0} onClick={onCharge}>
             Cobrar
           </Button>
+          <button type="button" className="mt-3 w-full text-sm text-brass-deep" disabled={detailed.length === 0} onClick={onLayaway}>
+            Apartar (plan separe)
+          </button>
         </>
       )}
     </>

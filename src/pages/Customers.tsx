@@ -46,8 +46,8 @@ export function Customers() {
     setOpen(true)
   }
 
-  function save() {
-    const result = saveCustomer(form, editing ?? undefined)
+  async function save() {
+    const result = await saveCustomer(form, editing ?? undefined)
     if (!result.ok) {
       setError(result.error)
       return
@@ -98,9 +98,10 @@ export function Customers() {
                     type="button"
                     className="text-sm text-muted"
                     onClick={() => {
-                      const result = removeCustomer(customer.id)
-                      if (!result.ok) toast(result.error, 'warn')
-                      else toast('Cliente eliminado')
+                      void removeCustomer(customer.id).then((result) => {
+                        if (!result.ok) toast(result.error, 'warn')
+                        else toast('Cliente eliminado')
+                      })
                     }}
                   >
                     Eliminar
@@ -152,9 +153,10 @@ export function Customers() {
                         type="button"
                         className="ml-3 text-sm text-muted"
                         onClick={() => {
-                          const result = removeCustomer(customer.id)
-                          if (!result.ok) toast(result.error, 'warn')
-                          else toast('Cliente eliminado')
+                          void removeCustomer(customer.id).then((result) => {
+                            if (!result.ok) toast(result.error, 'warn')
+                            else toast('Cliente eliminado')
+                          })
                         }}
                       >
                         Eliminar

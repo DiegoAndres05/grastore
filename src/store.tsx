@@ -1,203 +1,363 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createContext, useContext } from 'react'
-import { createEmpty, createSeed } from './data/seed'
-import { normalizeState } from './lib/books'
+import { createSeed } from './data/seed'
+import { bookIsEmpty, emptyState, loadLocal, parseBackup, saveLocal } from './lib/book'
+import {
+  applyAccountActive,
+  applyAddCategory,
+  applyAddColor,
+  applyAdjustment,
+  applyCancelLayaway,
+  applyCapital,
+  applyCompleteLayaway,
+  applyExpense,
+  applyInvestment,
+  applyLayaway,
+  applyLayawayDeposit,
+  applyLoan,
+  applyLoanPayment,
+  applyPayPayable,
+  applyPayable,
+  applyRenameCategory,
+  applyReturn,
+  applySalaryShare,
+  applySaveAccount,
+  applySettleInvestment,
+  applyTransfer,
+  applyUpdateSale,
+  applyVoidSale,
+  type AccountInput,
+  type ExpenseInput,
+  type LayawayInput,
+  type PayableInput,
+  type SalePatch,
+  type TransferInput,
+} from './lib/books'
+import { fullAccess, type Access } from './lib/access'
+import { fetchSnapshot, postBook, supabase } from './lib/cloud'
 import {
   applyCheckout,
   applyCollection,
   applyCustomer,
-  applyExpense,
-  applyOpening,
-  applyPayable,
-  applyPayablePayment,
   applyProduct,
   applyProductActive,
   applyPurchase,
   applyRemoveCustomer,
   applyRemoveSupplier,
-  applyReturn,
   applySupplier,
-  applyTransfer,
   type CheckoutInput,
   type CollectionInput,
   type CustomerInput,
-  type ExpenseInput,
-  type OpeningInput,
-  type PayableInput,
-  type PayablePaymentInput,
   type ProductInput,
   type PurchaseInput,
   type Result,
   type SupplierInput,
-  type TransferInput,
 } from './lib/logic'
-import type { Collection, Customer, Payable, Product, Purchase, Sale, State, Supplier } from './types'
-
-const STORAGE_KEY = 'grastore.v8'
+import type { Actor, State } from './types'
 
 type Toast = { id: string; text: string; tone: 'ok' | 'warn' }
 
 type StoreApi = {
   state: State
   toasts: Toast[]
+  mode: 'local' | 'cloud'
+  syncing: boolean
+  actor: Actor
+  access: Access
+  can: (permission: string) => boolean
   toast: (text: string, tone?: Toast['tone']) => void
-  checkout: (input: CheckoutInput) => Result<Sale>
-  collect: (input: CollectionInput) => Result<Collection>
-  purchase: (input: PurchaseInput) => Result<Purchase>
-  saveProduct: (input: ProductInput, id?: string) => Result<Product>
-  setProductActive: (id: string, active: boolean) => void
-  saveCustomer: (input: CustomerInput, id?: string) => Result<Customer>
-  removeCustomer: (id: string) => Result<true>
-  saveSupplier: (input: SupplierInput, id?: string) => Result<Supplier>
-  removeSupplier: (id: string) => Result<true>
-  returnSale: (id: string) => Result<Sale>
-  openBalance: (input: OpeningInput) => Result<true>
-  recordExpense: (input: ExpenseInput) => Result<true>
-  transfer: (input: TransferInput) => Result<true>
-  savePayable: (input: PayableInput) => Result<Payable>
-  payPayable: (input: PayablePaymentInput) => Result<true>
-  resetDemo: () => void
+  checkout: (input: CheckoutInput) => Promise<Result<State['sales'][number]>>
+  collect: (input: CollectionInput) => Promise<Result<State['collections'][number]>>
+  purchase: (input: PurchaseInput) => Promise<Result<State['purchases'][number]>>
+  saveProduct: (input: ProductInput, id?: string) => Promise<Result<State['products'][number]>>
+  setProductActive: (id: string, active: boolean) => Promise<Result<true>>
+  saveCustomer: (input: CustomerInput, id?: string) => Promise<Result<State['customers'][number]>>
+  removeCustomer: (id: string) => Promise<Result<true>>
+  saveSupplier: (input: SupplierInput, id?: string) => Promise<Result<State['suppliers'][number]>>
+  removeSupplier: (id: string) => Promise<Result<true>>
+  transfer: (input: TransferInput) => Promise<Result<true>>
+  saveAccount: (input: AccountInput, id?: string) => Promise<Result<State['accounts'][number]>>
+  setAccountActive: (id: string, active: boolean) => Promise<Result<true>>
+  expense: (input: ExpenseInput) => Promise<Result<State['expenses'][number]>>
+  savePayable: (input: PayableInput) => Promise<Result<State['payables'][number]>>
+  payPayable: (input: { payableId: string; amount: number; accountId: string; date?: string; note?: string }) => Promise<Result<true>>
+  capital: (input: { kind: 'aporte' | 'prestamo'; person: string; amount: number; accountId: string; date?: string; note?: string }) => Promise<Result<true>>
+  loan: (input: { person: string; amount: number; accountId: string; dueDate?: string | null; date?: string; note?: string }) => Promise<Result<State['loans'][number]>>
+  payLoan: (input: { loanId: string; amount: number; accountId: string; date?: string; note?: string }) => Promise<Result<true>>
+  layaway: (input: LayawayInput) => Promise<Result<State['layaways'][number]>>
+  layawayDeposit: (input: { layawayId: string; amount: number; accountId: string; date?: string; note?: string }) => Promise<Result<true>>
+  completeLayaway: (input: { layawayId: string; date?: string }) => Promise<Result<State['sales'][number]>>
+  cancelLayaway: (input: { layawayId: string; accountId?: string | null; date?: string }) => Promise<Result<true>>
+  voidSale: (saleId: string, date?: string) => Promise<Result<true>>
+  updateSale: (saleId: string, patch: SalePatch) => Promise<Result<State['sales'][number]>>
+  returnSale: (input: { saleId: string; lines: { index: number; qty: number }[]; accountId?: string | null; date?: string; note?: string }) => Promise<Result<true>>
+  adjust: (input: { productId: string; qtyDelta: number; reason: string; date?: string }) => Promise<Result<true>>
+  invest: (input: { supplierId: string; amount: number; note?: string; date?: string; accountId?: string | null; onCredit?: boolean }) => Promise<Result<true>>
+  settleInvestment: (id: string) => Promise<Result<true>>
+  addCategory: (name: string) => Promise<Result<true>>
+  renameCategory: (from: string, to: string) => Promise<Result<true>>
+  addColor: (name: string) => Promise<Result<true>>
+  setSalaryShare: (percent: number) => Promise<Result<true>>
+  replaceBook: (next: State) => Promise<Result<true>>
+  loadSample: () => Promise<Result<true>>
+  restoreBackup: (raw: string) => Promise<Result<true>>
+  signOut: () => Promise<void>
 }
 
 const StoreContext = createContext<StoreApi | null>(null)
 
-function readStored(key: string): State | null {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { version?: number; state?: State }
-    if (!parsed.state || !Array.isArray(parsed.state.products) || !Array.isArray(parsed.state.sales)) return null
-    if (parsed.version !== 8) return null
-    return normalizeState(parsed.state)
-  } catch {
-    return null
-  }
-}
-
-function load(): State {
-  return readStored(STORAGE_KEY) ?? createEmpty()
-}
-
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<State>(load)
+export function StoreProvider({
+  children,
+  actor,
+  mode,
+}: {
+  children: ReactNode
+  actor: Actor
+  mode: 'local' | 'cloud'
+}) {
+  const [state, setState] = useState<State>(() => (mode === 'local' ? loadLocal() : emptyState()))
+  const [access, setAccess] = useState<Access>(() => (mode === 'local' ? fullAccess().access : { roleId: '', roleName: '', active: true, permissions: [] }))
+  const [ready, setReady] = useState(mode === 'local')
+  const [syncing, setSyncing] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const stateRef = useRef(state)
+  const versionRef = useRef(0)
+  const requestGen = useRef(0)
+  const skipSave = useRef(false)
+  const actorRef = useRef(actor)
+  useEffect(() => {
+    actorRef.current = actor
+  }, [actor])
+
+  function toast(text: string, tone: Toast['tone'] = 'ok') {
+    const id = crypto.randomUUID()
+    setToasts((current) => [...current, { id, text, tone }])
+    window.setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 3400)
+  }
+  const toastRef = useRef(toast)
+  useEffect(() => {
+    toastRef.current = toast
+  })
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 8, state }))
-  }, [state])
+    if (mode !== 'cloud') return
+    let cancel = false
+    const db = supabase()
+    const pull = async (announce: boolean) => {
+      const snap = await fetchSnapshot()
+      if (cancel || !snap) return
+      if (!snap.access.active) {
+        await db?.auth.signOut()
+        return
+      }
+      const changed = snap.version !== versionRef.current
+      versionRef.current = snap.version
+      setAccess(snap.access)
+      skipSave.current = true
+      setState(snap.state)
+      if (announce && changed) toastRef.current('El libro se actualizó')
+    }
+    void pull(false)
+      .catch(() => {
+        if (!cancel) toastRef.current('No se pudo abrir el libro compartido.', 'warn')
+      })
+      .finally(() => {
+        if (!cancel) setReady(true)
+      })
+    const channel = db
+      ?.channel('grastore-book')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'book_signal', filter: 'id=eq.main' }, () => {
+        void pull(true).catch(() => toastRef.current('No se pudo actualizar el libro', 'warn'))
+      })
+      .subscribe()
+    return () => {
+      cancel = true
+      if (channel && db) void db.removeChannel(channel)
+    }
+  }, [mode])
+
+  useEffect(() => {
+    if (!ready || mode !== 'local') return
+    if (skipSave.current) {
+      skipSave.current = false
+      return
+    }
+    saveLocal(state)
+  }, [state, ready, mode])
 
   function commit(next: State) {
     stateRef.current = next
     setState(next)
   }
 
-  function toast(text: string, tone: Toast['tone'] = 'ok') {
-    const id = crypto.randomUUID()
-    setToasts((current) => [...current, { id, text, tone }])
-    window.setTimeout(() => {
-      setToasts((current) => current.filter((item) => item.id !== id))
-    }, 3400)
+  async function perform<T>(action: string, input: unknown, local: () => Result<{ state: State }>, pick: (data: { state: State }) => T): Promise<Result<T>> {
+    if (mode === 'cloud') {
+      const ticket = ++requestGen.current
+      setSyncing(true)
+      const remote = await postBook(action, input)
+      const latest = ticket === requestGen.current
+      if (latest) setSyncing(false)
+      if (!remote.ok) {
+        if (remote.conflict && latest) {
+          try {
+            const snap = await fetchSnapshot()
+            if (snap && ticket === requestGen.current) {
+              versionRef.current = snap.version
+              setAccess(snap.access)
+              commit(snap.state)
+            }
+          } catch {
+            toastRef.current('No se pudo recargar el libro', 'warn')
+          }
+        }
+        return { ok: false, error: remote.error }
+      }
+      if (!latest) return { ok: true, data: remote.data as T }
+      versionRef.current = remote.version
+      setAccess(remote.access)
+      commit(remote.state)
+      return { ok: true, data: remote.data as T }
+    }
+    const result = local()
+    if (!result.ok) return result
+    commit(result.data.state)
+    return { ok: true, data: pick(result.data) }
   }
+
+  const actorNow = () => actorRef.current
 
   const api: StoreApi = {
     state,
     toasts,
+    mode,
+    syncing,
+    actor,
+    access,
+    can: (permission) => access.active && access.permissions.includes(permission),
     toast,
     checkout(input) {
-      const applied = applyCheckout(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.sale }
+      return perform('checkout', input, () => applyCheckout(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { sale: State['sales'][number] }).sale)
     },
     collect(input) {
-      const applied = applyCollection(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.collection }
+      return perform('collect', input, () => applyCollection(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { collection: State['collections'][number] }).collection)
     },
     purchase(input) {
-      const applied = applyPurchase(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.purchase }
+      return perform('purchase', input, () => applyPurchase(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { purchase: State['purchases'][number] }).purchase)
     },
     saveProduct(input, id) {
-      const applied = applyProduct(stateRef.current, input, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.product }
+      return perform('saveProduct', { ...input, id }, () => applyProduct(stateRef.current, { ...input, actor: actorNow() }, id), (data) => (data as unknown as { product: State['products'][number] }).product)
     },
     setProductActive(id, active) {
-      commit(applyProductActive(stateRef.current, id, active))
+      return perform('setProductActive', { id, active }, () => ({ ok: true, data: { state: applyProductActive(stateRef.current, id, active) } }), () => true)
     },
     saveCustomer(input, id) {
-      const applied = applyCustomer(stateRef.current, input, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.customer }
+      return perform('saveCustomer', { ...input, id }, () => applyCustomer(stateRef.current, { ...input, actor: actorNow() }, id), (data) => (data as unknown as { customer: State['customers'][number] }).customer)
     },
     removeCustomer(id) {
-      const applied = applyRemoveCustomer(stateRef.current, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
+      return perform('removeCustomer', { id }, () => applyRemoveCustomer(stateRef.current, id), () => true)
     },
     saveSupplier(input, id) {
-      const applied = applySupplier(stateRef.current, input, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.supplier }
+      return perform('saveSupplier', { ...input, id }, () => applySupplier(stateRef.current, { ...input, actor: actorNow() }, id), (data) => (data as unknown as { supplier: State['suppliers'][number] }).supplier)
     },
     removeSupplier(id) {
-      const applied = applyRemoveSupplier(stateRef.current, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
-    },
-    returnSale(id) {
-      const applied = applyReturn(stateRef.current, id)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.sale }
-    },
-    openBalance(input) {
-      const applied = applyOpening(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
-    },
-    recordExpense(input) {
-      const applied = applyExpense(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
+      return perform('removeSupplier', { id }, () => applyRemoveSupplier(stateRef.current, id), () => true)
     },
     transfer(input) {
-      const applied = applyTransfer(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
+      return perform('transfer', input, () => applyTransfer(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    saveAccount(input, id) {
+      return perform('saveAccount', { ...input, id }, () => applySaveAccount(stateRef.current, { ...input, actor: actorNow() }, id), (data) => (data as unknown as { account: State['accounts'][number] }).account)
+    },
+    setAccountActive(id, active) {
+      return perform('setAccountActive', { id, active }, () => ({ ok: true, data: { state: applyAccountActive(stateRef.current, id, active) } }), () => true)
+    },
+    expense(input) {
+      return perform('expense', input, () => applyExpense(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { expense: State['expenses'][number] }).expense)
     },
     savePayable(input) {
-      const applied = applyPayable(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: applied.data.payable }
+      return perform('savePayable', input, () => applyPayable(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { payable: State['payables'][number] }).payable)
     },
     payPayable(input) {
-      const applied = applyPayablePayment(stateRef.current, input)
-      if (!applied.ok) return applied
-      commit(applied.data.state)
-      return { ok: true, data: true }
+      return perform('payPayable', input, () => applyPayPayable(stateRef.current, { ...input, actor: actorNow() }), () => true)
     },
-    resetDemo() {
-      commit(createSeed())
-      toast('Libro de muestra restaurado')
+    capital(input) {
+      return perform('capital', input, () => applyCapital(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    loan(input) {
+      return perform('loan', input, () => applyLoan(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { loan: State['loans'][number] }).loan)
+    },
+    payLoan(input) {
+      return perform('payLoan', input, () => applyLoanPayment(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    layaway(input) {
+      return perform('layaway', input, () => applyLayaway(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { layaway: State['layaways'][number] }).layaway)
+    },
+    layawayDeposit(input) {
+      return perform('layawayDeposit', input, () => applyLayawayDeposit(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    completeLayaway(input) {
+      return perform('completeLayaway', input, () => applyCompleteLayaway(stateRef.current, { ...input, actor: actorNow() }), (data) => (data as unknown as { sale: State['sales'][number] }).sale)
+    },
+    cancelLayaway(input) {
+      return perform('cancelLayaway', input, () => applyCancelLayaway(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    voidSale(saleId, date) {
+      return perform('voidSale', { saleId, date }, () => applyVoidSale(stateRef.current, { saleId, date, actor: actorNow() }), () => true)
+    },
+    updateSale(saleId, patch) {
+      return perform('updateSale', { saleId, patch }, () => applyUpdateSale(stateRef.current, saleId, patch), (data) => (data as unknown as { sale: State['sales'][number] }).sale)
+    },
+    returnSale(input) {
+      return perform('returnSale', input, () => applyReturn(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    adjust(input) {
+      return perform('adjust', input, () => applyAdjustment(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    invest(input) {
+      return perform('invest', input, () => applyInvestment(stateRef.current, { ...input, actor: actorNow() }), () => true)
+    },
+    settleInvestment(id) {
+      return perform('settleInvestment', { id }, () => applySettleInvestment(stateRef.current, id), () => true)
+    },
+    addCategory(name) {
+      return perform('addCategory', { name }, () => applyAddCategory(stateRef.current, name), () => true)
+    },
+    renameCategory(from, to) {
+      return perform('renameCategory', { from, to }, () => applyRenameCategory(stateRef.current, from, to), () => true)
+    },
+    addColor(name) {
+      return perform('addColor', { name }, () => applyAddColor(stateRef.current, name), () => true)
+    },
+    setSalaryShare(percent) {
+      return perform('setSalaryShare', { percent }, () => applySalaryShare(stateRef.current, percent), () => true)
+    },
+    async replaceBook(next) {
+      const result = await perform('replaceBook', next, () => ({ ok: true, data: { state: next } }), () => true as const)
+      if (result.ok) toast('Libro importado')
+      return result
+    },
+    async loadSample() {
+      if (!bookIsEmpty(stateRef.current)) return { ok: false as const, error: 'El libro ya tiene datos. Descarga un respaldo antes de reemplazarlo.' }
+      const result = await perform('loadSample', {}, () => ({ ok: true, data: { state: createSeed() } }), () => true as const)
+      if (result.ok) toast('Muestra cargada')
+      return result
+    },
+    async restoreBackup(raw) {
+      try {
+        if (mode === 'local') parseBackup(raw)
+      } catch (error) {
+        return { ok: false as const, error: error instanceof Error ? error.message : 'No se pudo leer el respaldo' }
+      }
+      const result = await perform('restoreBackup', { raw }, () => ({ ok: true, data: { state: parseBackup(raw) } }), () => true as const)
+      if (result.ok) toast('Respaldo restaurado')
+      return result
+    },
+    async signOut() {
+      await supabase()?.auth.signOut()
     },
   }
 

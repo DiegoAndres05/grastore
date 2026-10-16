@@ -1,162 +1,104 @@
 import { useState } from 'react'
-import { Badge, Button, Empty, Field, FormError, Modal, PageHeader, inputClass } from '../components/ui'
-import { ACCOUNT_LABEL, ACCOUNTS, PAYABLE_LABEL, payableTotal } from '../lib/books'
-import { dateTime, money } from '../lib/format'
-import type { CashAccount, PayableKind } from '../types'
+import { AccountSelect, Button, Field, FormError, MoneyInput, PageHeader, inputClass } from '../components/ui'
+import { money, todayInput } from '../lib/format'
 import { useStore } from '../store'
+import type { PayableKind } from '../types'
 
-const kinds: Exclude<PayableKind, 'mercancia'>[] = ['servicio', 'sueldo', 'otro']
+const kinds: { id: PayableKind; label: string }[] = [
+  { id: 'proveedor', label: 'Proveedor' },
+  { id: 'sueldo', label: 'Sueldo' },
+  { id: 'servicio', label: 'Servicio' },
+  { id: 'capital', label: 'Capital' },
+  { id: 'otro', label: 'Otro' },
+]
 
 export function Payables() {
   const { state, savePayable, payPayable, toast } = useStore()
-  const [open, setOpen] = useState(false)
-  const [paying, setPaying] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [supplierId, setSupplierId] = useState('')
+  const [creditor, setCreditor] = useState('')
   const [concept, setConcept] = useState('')
-  const [kind, setKind] = useState<Exclude<PayableKind, 'mercancia'>>('servicio')
-  const [total, setTotal] = useState(0)
-  const [note, setNote] = useState('')
+  const [kind, setKind] = useState<PayableKind>('otro')
   const [amount, setAmount] = useState(0)
-  const [account, setAccount] = useState<CashAccount>('efectivo')
   const [error, setError] = useState('')
+  const [paying, setPaying] = useState<string | null>(null)
+  const [payAmount, setPayAmount] = useState(0)
+  const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? '')
+  const [date, setDate] = useState(todayInput())
 
-  const due = payableTotal(state.payables)
-  const current = state.payables.find((item) => item.id === paying)
+  const open = state.payables.filter((item) => item.balance > 0)
+  const total = open.reduce((sum, item) => sum + item.balance, 0)
 
-  function start() {
-    setName('')
-    setSupplierId('')
+  async function create() {
+    const result = await savePayable({ creditor, concept, kind, amount, date })
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setCreditor('')
     setConcept('')
-    setKind('servicio')
-    setTotal(0)
-    setNote('')
+    setAmount(0)
     setError('')
-    setOpen(true)
+    toast('Deuda registrada')
   }
 
-  function create() {
-    const supplier = state.suppliers.find((item) => item.id === supplierId)
-    const result = savePayable({
-      supplierId: supplier?.id ?? null,
-      name: supplier?.name || name,
-      concept,
-      kind,
-      total,
-      note,
-    })
+  async function pay(id: string) {
+    const result = await payPayable({ payableId: id, amount: payAmount, accountId, date })
     if (!result.ok) {
-      setError(result.error)
+      toast(result.error, 'warn')
       return
     }
-    toast(`${result.data.number} quedó por pagar`)
-    setOpen(false)
-  }
-
-  function pay() {
-    if (!paying) return
-    const result = payPayable({ payableId: paying, amount, account })
-    if (!result.ok) {
-      setError(result.error)
-      return
-    }
-    toast('Pago registrado. La deuda y la caja bajaron.')
     setPaying(null)
+    toast('Pago registrado')
   }
 
   return (
     <div>
-      <PageHeader
-        kicker="Lo que la tienda debe"
-        title="Por pagar"
-        text="Una compra fiada nace aquí. Un pago baja esta deuda y la cuenta de donde salió la plata, sin crear otra compra."
-        action={<Button onClick={start}>Nueva obligación</Button>}
-      />
-      <p className="mb-6 font-serif text-4xl tabular-nums">{money(due)}</p>
-      {state.payables.length === 0 ? (
-        <Empty title="Sin deudas" text="Las compras a crédito y los servicios fiados aparecen aquí." />
-      ) : (
-        <ul>
-          {state.payables.map((payable) => (
-            <li key={payable.id} className="flex flex-wrap items-start justify-between gap-3 border-t border-line py-4">
-              <div className="min-w-0">
-                <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{payable.number} · {dateTime(payable.date)}</p>
-                <p className="mt-1 font-serif text-xl">{payable.name}</p>
-                <p className="mt-1 text-sm text-muted">{payable.concept} · {PAYABLE_LABEL[payable.kind]}</p>
-              </div>
-              <div className="text-right">
-                <p className="font-serif text-xl tabular-nums">{money(payable.balance)}</p>
-                <div className="mt-2 flex items-center justify-end gap-2">
-                  <Badge tone={payable.balance === 0 ? 'ok' : 'warn'}>{payable.balance === 0 ? 'Pagada' : `Abonado ${money(payable.paid)}`}</Badge>
-                  {payable.balance > 0 ? (
-                    <Button onClick={() => { setPaying(payable.id); setAmount(payable.balance); setError(''); setAccount('efectivo') }}>Pagar</Button>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <Modal open={open} kicker="Obligación" title="Nueva deuda" onClose={() => setOpen(false)}>
-        <div className="space-y-4">
-          <Field label="Proveedor">
-            <select className={inputClass} value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
-              <option value="">Escribir el nombre</option>
-              {state.suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+      <PageHeader kicker="Cuentas por pagar" title="Por pagar" text={`Saldo abierto ${money(total)}. Incluye proveedores, sueldos, servicios y préstamos de capital.`} />
+      <section className="mb-8 rounded-3xl border border-line bg-card p-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="A quién">
+            <input className={inputClass} value={creditor} onChange={(event) => setCreditor(event.target.value)} />
+          </Field>
+          <Field label="Concepto">
+            <input className={inputClass} value={concept} onChange={(event) => setConcept(event.target.value)} />
+          </Field>
+          <Field label="Clase">
+            <select className={inputClass} value={kind} onChange={(event) => setKind(event.target.value as PayableKind)}>
+              {kinds.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           </Field>
-          {supplierId ? null : (
-            <Field label="A quién se le debe">
-              <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} />
-            </Field>
-          )}
-          <Field label="Concepto">
-            <input className={inputClass} value={concept} placeholder="Luz, local, sueldo" onChange={(event) => setConcept(event.target.value)} />
+          <Field label="Valor">
+            <MoneyInput value={amount} onChange={setAmount} />
           </Field>
-          <Field label="Tipo">
-            <div className="grid grid-cols-3 gap-2">
-              {kinds.map((item) => (
-                <button key={item} type="button" className={`rounded-xl border px-2 py-2 text-sm ${kind === item ? 'border-ink bg-ink text-paper' : 'border-line'}`} onClick={() => setKind(item)}>
-                  {PAYABLE_LABEL[item]}
-                </button>
-              ))}
-            </div>
+          <Field label="Fecha">
+            <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} />
           </Field>
-          <Field label="Valor" hint="Entra a la ganancia neta cuando es sueldo, servicio u otro. La mercancía nace desde Compras.">
-            <input className={inputClass} inputMode="numeric" value={total ? new Intl.NumberFormat('es-CO').format(total) : ''} placeholder="0" onChange={(event) => setTotal(Number(event.target.value.replace(/\D/g, '')) || 0)} />
-          </Field>
-          <Field label="Nota">
-            <input className={inputClass} value={note} placeholder="Opcional" onChange={(event) => setNote(event.target.value)} />
-          </Field>
-          <FormError>{error}</FormError>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button onClick={create}>Guardar deuda</Button>
-          </div>
         </div>
-      </Modal>
-
-      <Modal open={current != null} kicker={current?.number ?? ''} title="Pagar obligación" onClose={() => setPaying(null)}>
-        {current ? (
-          <div className="space-y-4">
-            <p className="text-sm text-muted">{current.name} · saldo {money(current.balance)}</p>
-            <Field label="Valor">
-              <input className={inputClass} inputMode="numeric" value={amount ? new Intl.NumberFormat('es-CO').format(amount) : ''} onChange={(event) => setAmount(Number(event.target.value.replace(/\D/g, '')) || 0)} />
-            </Field>
-            <Field label="Sale de">
-              <select className={inputClass} value={account} onChange={(event) => setAccount(event.target.value as CashAccount)}>
-                {ACCOUNTS.map((item) => <option key={item} value={item}>{ACCOUNT_LABEL[item]}</option>)}
-              </select>
-            </Field>
-            <FormError>{error}</FormError>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setPaying(null)}>Cancelar</Button>
-              <Button onClick={pay}>Registrar pago</Button>
+        <FormError>{error}</FormError>
+        <Button className="mt-4" onClick={create}>Anotar deuda</Button>
+      </section>
+      <ul className="space-y-3">
+        {open.map((item) => (
+          <li key={item.id} className="rounded-2xl border border-line p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p>{item.creditor}</p>
+                <p className="mt-1 text-xs text-muted">{item.concept} · {item.kind}{item.createdByName ? ` · ${item.createdByName}` : ''}</p>
+              </div>
+              <p className="font-serif text-2xl tabular-nums">{money(item.balance)}</p>
             </div>
-          </div>
-        ) : null}
-      </Modal>
+            {paying === item.id ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <MoneyInput value={payAmount} onChange={setPayAmount} />
+                <AccountSelect accounts={state.accounts} value={accountId} onChange={setAccountId} />
+                <Button onClick={() => pay(item.id)}>Pagar</Button>
+              </div>
+            ) : (
+              <button type="button" className="mt-3 text-sm text-brass-deep" onClick={() => { setPaying(item.id); setPayAmount(item.balance) }}>Registrar pago</button>
+            )}
+          </li>
+        ))}
+        {open.length === 0 ? <li className="text-sm text-muted">No hay deudas abiertas.</li> : null}
+      </ul>
     </div>
   )
 }

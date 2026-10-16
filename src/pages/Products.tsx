@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Badge, Button, Empty, Field, FormError, Modal, MoneyInput, PageHeader, SearchBox, inputClass, tdClass, thClass } from '../components/ui'
-import { CATEGORIES, COLORS, nextSku, norm, swatch } from '../lib/catalog'
-import { money, percent } from '../lib/format'
+import { nextSku, norm, swatch } from '../lib/catalog'
+import { inventoryRows, saveCsv, saveXlsx } from '../lib/exportSheet'
+import { money, percent, todayInput } from '../lib/format'
 import type { ProductInput } from '../lib/logic'
 import { useStore } from '../store'
 import type { Product } from '../types'
@@ -19,7 +20,7 @@ const blank = (sku: string): ProductInput => ({
 })
 
 export function Products() {
-  const { state, saveProduct, setProductActive, toast } = useStore()
+  const { state, saveProduct, setProductActive, addCategory, addColor, adjust, toast, can } = useStore()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('Todas')
   const [archived, setArchived] = useState(false)
@@ -27,6 +28,12 @@ export function Products() {
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState<ProductInput>(blank(''))
   const [error, setError] = useState('')
+  const [categoryName, setCategoryName] = useState('')
+  const [colorName, setColorName] = useState('')
+  const [adjustId, setAdjustId] = useState('')
+  const [delta, setDelta] = useState(0)
+  const [reason, setReason] = useState('')
+  const [adjustDate, setAdjustDate] = useState(todayInput())
 
   const rows = useMemo(() => {
     const needle = norm(query)
@@ -39,7 +46,7 @@ export function Products() {
 
   function startCreate() {
     setEditing(null)
-    setForm(blank(nextSku(state.products.map((product) => product.sku))))
+    setForm({ ...blank(nextSku(state.products.map((product) => product.sku))), category: state.settings.categories[0] ?? 'General' })
     setError('')
     setOpen(true)
   }
@@ -56,13 +63,16 @@ export function Products() {
       price: product.price,
       stock: product.stock,
       minStock: product.minStock,
+      location: product.location ?? '',
+      brand: product.brand ?? '',
+      design: product.design ?? '',
     })
     setError('')
     setOpen(true)
   }
 
-  function save() {
-    const result = saveProduct(form, editing ?? undefined)
+  async function save() {
+    const result = await saveProduct(form, editing ?? undefined)
     if (!result.ok) {
       setError(result.error)
       return
@@ -79,12 +89,18 @@ export function Products() {
         kicker="Catálogo"
         title="Prendas"
         text="Talla, color, costo y precio viven en la misma ficha. El stock baja con cada venta."
-        action={<Button onClick={startCreate}>Nueva prenda</Button>}
+        action={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => saveXlsx('inventario.xlsx', [{ name: 'Inventario', rows: inventoryRows(state) }])}>Excel</Button>
+            <Button variant="ghost" onClick={() => saveCsv('inventario.csv', inventoryRows(state))}>CSV</Button>
+            {can('products.write') ? <Button onClick={startCreate}>Nueva prenda</Button> : null}
+          </div>
+        }
       />
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="lg:w-80"><SearchBox value={query} onChange={setQuery} placeholder="Nombre, SKU o color" /></div>
         <div className="scroll-clean flex min-w-0 gap-2 overflow-x-auto">
-          {['Todas', ...CATEGORIES].map((item) => (
+          {['Todas', ...state.settings.categories].map((item) => (
             <button key={item} type="button" className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${category === item ? 'bg-ink text-paper' : 'border border-line bg-card text-muted'}`} onClick={() => setCategory(item)}>
               {item}
             </button>
@@ -115,21 +131,23 @@ export function Products() {
                 <div className="mt-4 flex items-end justify-between gap-3">
                   <div>
                     <p className="text-sm tabular-nums">{money(product.price)}</p>
-                    <p className="mt-1 text-xs text-muted">{product.stock} und · margen {percent(margin)}</p>
+                    <p className="mt-1 text-xs text-muted">{product.stock} und{can('products.costs') ? ` · margen ${percent(margin)}` : ''}</p>
                   </div>
-                  <div className="flex gap-3">
+                  {can('products.write') ? <div className="flex gap-3">
                     <button type="button" className="text-sm text-brass-deep" onClick={() => startEdit(product)}>Editar</button>
                     <button
                       type="button"
                       className="text-sm text-muted"
                       onClick={() => {
-                        setProductActive(product.id, !product.active)
-                        toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                        void setProductActive(product.id, !product.active).then((result) => {
+                          if (!result.ok) toast(result.error, 'warn')
+                          else toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                        })
                       }}
                     >
                       {product.active ? 'Archivar' : 'Activar'}
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
               </li>
             )
@@ -143,7 +161,7 @@ export function Products() {
                 <th className={thClass}>SKU</th>
                 <th className={`${thClass} text-right`}>Stock</th>
                 <th className={`${thClass} text-right`}>Precio</th>
-                <th className={`${thClass} text-right`}>Margen</th>
+                {can('products.costs') ? <th className={`${thClass} text-right`}>Margen</th> : null}
                 <th className={thClass} />
               </tr>
             </thead>
@@ -167,19 +185,25 @@ export function Products() {
                       {product.active && product.stock <= product.minStock ? <span className="mt-1 block"><Badge tone={product.stock === 0 ? 'danger' : 'warn'}>{product.stock === 0 ? 'Agotada' : 'Bajo'}</Badge></span> : null}
                     </td>
                     <td className={`${tdClass} text-right tabular-nums`}>{money(product.price)}</td>
-                    <td className={`${tdClass} text-right tabular-nums`}>{percent(margin)}</td>
+                    {can('products.costs') ? <td className={`${tdClass} text-right tabular-nums`}>{percent(margin)}</td> : null}
                     <td className={`${tdClass} text-right`}>
+                      {can('products.write') ? (
+                        <>
                       <button type="button" className="text-sm text-brass-deep" onClick={() => startEdit(product)}>Editar</button>
                       <button
                         type="button"
                         className="ml-3 text-sm text-muted"
                         onClick={() => {
-                          setProductActive(product.id, !product.active)
-                          toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                          void setProductActive(product.id, !product.active).then((result) => {
+                            if (!result.ok) toast(result.error, 'warn')
+                            else toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                          })
                         }}
                       >
                         {product.active ? 'Archivar' : 'Activar'}
                       </button>
+                        </>
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -189,6 +213,26 @@ export function Products() {
         </div>
         </>
       )}
+
+      {can('inventory.adjust') ? <section className="mt-8 rounded-3xl border border-line p-5">
+        <h2 className="font-serif text-2xl">Ajuste de inventario</h2>
+        <p className="mt-2 text-sm text-muted">Suma o resta unidades y deja el motivo. No cambia el costo.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_100px_160px_1fr_auto]">
+          <select className={inputClass} value={adjustId} onChange={(event) => setAdjustId(event.target.value)}>
+            <option value="">Prenda</option>
+            {state.products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.color} · {product.size}</option>)}
+          </select>
+          <input className={inputClass} inputMode="numeric" placeholder="+/-" value={delta || ''} onChange={(event) => setDelta(Number(event.target.value.replace(/[^\d-]/g, '')) || 0)} />
+          <input className={inputClass} type="date" value={adjustDate} onChange={(event) => setAdjustDate(event.target.value)} />
+          <input className={inputClass} placeholder="Motivo" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <Button variant="ghost" onClick={() => {
+            void adjust({ productId: adjustId, qtyDelta: delta, reason, date: adjustDate }).then((result) => {
+              if (!result.ok) toast(result.error, 'warn')
+              else { toast('Ajuste registrado'); setDelta(0); setReason('') }
+            })
+          }}>Ajustar</Button>
+        </div>
+      </section> : null}
 
       <Modal open={open} kicker="Catálogo" title={editing ? 'Editar prenda' : 'Nueva prenda'} onClose={() => setOpen(false)}>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -200,12 +244,12 @@ export function Products() {
           </Field>
           <Field label="Categoría">
             <select className={inputClass} value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
-              {CATEGORIES.map((item) => <option key={item}>{item}</option>)}
+              {state.settings.categories.map((item) => <option key={item}>{item}</option>)}
             </select>
           </Field>
           <Field label="Color">
             <input className={inputClass} list="gra-colors" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} />
-            <datalist id="gra-colors">{COLORS.map((color) => <option key={color} value={color} />)}</datalist>
+            <datalist id="gra-colors">{state.settings.colors.map((color) => <option key={color} value={color} />)}</datalist>
           </Field>
           <Field label="Talla">
             <input className={inputClass} value={form.size} onChange={(event) => setForm({ ...form, size: event.target.value })} />
@@ -213,17 +257,34 @@ export function Products() {
           <Field label="Stock mínimo">
             <input className={inputClass} inputMode="numeric" value={form.minStock} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
           </Field>
-          <Field label="Costo">
-            {editing ? <input className={inputClass} value={new Intl.NumberFormat('es-CO').format(form.cost)} readOnly /> : <MoneyInput value={form.cost} onChange={(cost) => setForm({ ...form, cost })} />}
-          </Field>
+          {can('products.costs') ? <Field label="Costo">
+            <MoneyInput value={form.cost} onChange={(cost) => setForm({ ...form, cost })} />
+          </Field> : null}
           <Field label="Precio de venta" hint={belowCost ? 'Se vende por debajo del costo.' : undefined}>
             <MoneyInput value={form.price} onChange={(price) => setForm({ ...form, price })} />
           </Field>
+          <Field label="Ubicación">
+            <input className={inputClass} value={form.location ?? ''} placeholder="Arriba, abajo, bodega" onChange={(event) => setForm({ ...form, location: event.target.value })} />
+          </Field>
           <Field label="Existencias">
-            <input className={inputClass} inputMode="numeric" readOnly={editing != null} value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
+            <input className={inputClass} inputMode="numeric" value={form.stock} onChange={(event) => setForm({ ...form, stock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
           </Field>
         </div>
-        <p className="mt-3 text-xs text-muted">{editing ? 'El precio sí se puede ajustar. Las unidades entran por Compras y salen por Ventas.' : 'Las existencias iniciales quedan como apertura de inventario. Las siguientes entradas van por Compras.'}</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Field label="Nueva categoría">
+            <div className="flex gap-2">
+              <input className={inputClass} value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+              <Button variant="ghost" onClick={() => { void addCategory(categoryName).then((result) => { if (!result.ok) setError(result.error); else { setCategoryName(''); setForm({ ...form, category: categoryName.trim() }) } }) }}>Agregar</Button>
+            </div>
+          </Field>
+          <Field label="Nuevo color">
+            <div className="flex gap-2">
+              <input className={inputClass} value={colorName} onChange={(event) => setColorName(event.target.value)} />
+              <Button variant="ghost" onClick={() => { void addColor(colorName).then((result) => { if (!result.ok) setError(result.error); else { setColorName(''); setForm({ ...form, color: colorName.trim() }) } }) }}>Agregar</Button>
+            </div>
+          </Field>
+        </div>
+        <p className="mt-3 text-xs text-muted">Para una entrada formal de mercancía, regístrala en Compras: ahí el costo se promedia y el stock sube solo.</p>
         <FormError>{error}</FormError>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>

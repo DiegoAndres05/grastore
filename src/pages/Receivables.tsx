@@ -1,23 +1,28 @@
 import { useState } from 'react'
 import { CollectModal } from '../components/CollectModal'
-import { Badge, Button, Empty, PageHeader, tdClass, thClass } from '../components/ui'
-import { daysSince, money, relativeDay } from '../lib/format'
+import { AccountSelect, Badge, Button, Empty, Field, MoneyInput, PageHeader, inputClass, tdClass, thClass } from '../components/ui'
+import { cutoffSummary } from '../lib/accounting'
+import { daysSince, money, relativeDay, todayInput } from '../lib/format'
 import { useStore } from '../store'
 
 export function Receivables() {
-  const { state } = useStore()
+  const { state, loan, payLoan, layawayDeposit, completeLayaway, cancelLayaway, toast } = useStore()
   const [onlyLate, setOnlyLate] = useState(false)
   const [customerId, setCustomerId] = useState<string | undefined>()
   const [saleId, setSaleId] = useState<string | undefined>()
   const [open, setOpen] = useState(false)
 
+  const [loanPerson, setLoanPerson] = useState('')
+  const [loanAmount, setLoanAmount] = useState(0)
+  const [loanAccount, setLoanAccount] = useState(state.accounts[0]?.id ?? '')
   const rows = state.sales
-    .filter((sale) => sale.balance > 0)
+    .filter((sale) => !sale.voided && sale.balance > 0)
     .filter((sale) => !onlyLate || daysSince(sale.date) > 15)
     .sort((a, b) => a.date.localeCompare(b.date))
   const total = state.sales.reduce((sum, sale) => sum + sale.balance, 0)
   const clients = new Set(rows.map((sale) => sale.customerId)).size
-  const late = state.sales.filter((sale) => sale.balance > 0 && daysSince(sale.date) > 15)
+  const late = state.sales.filter((sale) => !sale.voided && sale.balance > 0 && daysSince(sale.date) > 15)
+  const cuts = cutoffSummary(state)
   const lateTotal = late.reduce((sum, sale) => sum + sale.balance, 0)
 
   return (
@@ -125,6 +130,83 @@ export function Receivables() {
         </>
       )}
       <p className="mt-4 text-xs text-muted">{clients} clientes en esta vista.</p>
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Por corte</h2>
+        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          {cuts.map((cut) => (
+            <li key={cut.label} className="flex items-center justify-between rounded-2xl border border-line px-4 py-3 text-sm">
+              <span>{cut.label} · {cut.count}</span>
+              <span className="tabular-nums">{money(cut.amount)}</span>
+            </li>
+          ))}
+          {cuts.length === 0 ? <li className="text-sm text-muted">No hay saldos agrupados.</li> : null}
+        </ul>
+      </section>
+      <section className="mt-8">
+        <h2 className="font-serif text-2xl">Plan separe</h2>
+        <ul className="mt-3 space-y-3">
+          {state.layaways.filter((item) => item.status === 'abierto').map((item) => (
+            <li key={item.id} className="rounded-2xl border border-line p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p>{item.customerName} · {item.number}</p>
+                  <p className="mt-1 text-xs text-muted">Abonado {money(item.deposited)} · falta {money(item.balance)}{item.note ? ` · ${item.note}` : ''}</p>
+                </div>
+                <p className="tabular-nums">{money(item.balance)}</p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button type="button" className="text-brass-deep" onClick={() => {
+                  void layawayDeposit({ layawayId: item.id, amount: item.balance, accountId: state.accounts[0]?.id ?? '', date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast('Abono del apartado registrado')
+                  })
+                }}>Abonar el saldo</button>
+                {item.balance === 0 ? <button type="button" className="text-brass-deep" onClick={() => {
+                  void completeLayaway({ layawayId: item.id, date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast(`Entregado en ${result.data.number}`)
+                  })
+                }}>Entregar</button> : null}
+                <button type="button" className="text-muted" onClick={() => {
+                  void cancelLayaway({ layawayId: item.id, accountId: state.accounts[0]?.id, date: todayInput() }).then((result) => {
+                    if (!result.ok) toast(result.error, 'warn')
+                    else toast('Apartado cancelado')
+                  })
+                }}>Cancelar</button>
+              </div>
+            </li>
+          ))}
+          {state.layaways.every((item) => item.status !== 'abierto') ? <li className="text-sm text-muted">No hay apartados abiertos.</li> : null}
+        </ul>
+      </section>
+      <section className="mt-8 rounded-3xl border border-line p-5">
+        <h2 className="font-serif text-2xl">Préstamos a terceros</h2>
+        <p className="mt-2 text-sm text-muted">Es plata que sale de la caja y no es una venta. Se cobra aparte de la cartera de ropa.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Field label="A quién"><input className={inputClass} value={loanPerson} onChange={(event) => setLoanPerson(event.target.value)} /></Field>
+          <Field label="Valor"><MoneyInput value={loanAmount} onChange={setLoanAmount} /></Field>
+          <Field label="Sale de"><AccountSelect accounts={state.accounts} value={loanAccount} onChange={setLoanAccount} /></Field>
+        </div>
+        <Button className="mt-4" variant="ghost" onClick={() => {
+          void loan({ person: loanPerson, amount: loanAmount, accountId: loanAccount, date: todayInput() }).then((result) => {
+            if (!result.ok) toast(result.error, 'warn')
+            else { toast('Préstamo registrado'); setLoanPerson(''); setLoanAmount(0) }
+          })
+        }}>Prestar</Button>
+        <ul className="mt-4 space-y-2">
+          {state.loans.filter((item) => item.balance > 0).map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-3 border-t border-line py-3 text-sm">
+              <span>{item.person} · {money(item.balance)}</span>
+              <button type="button" className="text-brass-deep" onClick={() => {
+                void payLoan({ loanId: item.id, amount: item.balance, accountId: loanAccount, date: todayInput() }).then((result) => {
+                  if (!result.ok) toast(result.error, 'warn')
+                  else toast('Abono del préstamo registrado')
+                })
+              }}>Cobrar todo</button>
+            </li>
+          ))}
+        </ul>
+      </section>
       <CollectModal open={open} customerId={customerId} saleId={saleId} onClose={() => setOpen(false)} />
     </div>
   )

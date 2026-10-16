@@ -1,20 +1,26 @@
 import {
-  Banknote,
+  ArrowLeftRight,
+  ChartColumn,
+  FileUp,
+  HandCoins,
+  Landmark,
   LayoutDashboard,
   Menu,
   PackagePlus,
   Receipt,
   Scale,
-  ChartColumn,
   Shirt,
   ShoppingBag,
   Truck,
+  Shield,
   Users,
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { go, type PageId } from '../lib/nav'
+import { useRef, useState, type ReactNode } from 'react'
+import { bookHasRealData, bookIsEmpty } from '../lib/book'
+import { canOpen, go, type PageId } from '../lib/nav'
+import { downloadBackup } from '../lib/exportSheet'
 import { useStore } from '../store'
 import { Splash } from './motion'
 import { Button, Modal } from './ui'
@@ -29,26 +35,34 @@ const floor: { id: PageId; label: string; icon: LucideIcon }[] = [
 
 const books: { id: PageId; label: string; icon: LucideIcon }[] = [
   { id: 'compras', label: 'Compras', icon: PackagePlus },
-  { id: 'caja', label: 'Caja', icon: Banknote },
   { id: 'cobrar', label: 'Cartera', icon: Wallet },
-  { id: 'pagar', label: 'Por pagar', icon: Receipt },
-  { id: 'balance', label: 'Balance', icon: Scale },
   { id: 'clientes', label: 'Clientes', icon: Users },
   { id: 'proveedores', label: 'Proveedores', icon: Truck },
+  { id: 'caja', label: 'Caja', icon: Landmark },
+  { id: 'gastos', label: 'Gastos', icon: ArrowLeftRight },
+  { id: 'pagar', label: 'Por pagar', icon: HandCoins },
+]
+
+const closeBooks: { id: PageId; label: string; icon: LucideIcon }[] = [
+  { id: 'contabilidad', label: 'Contabilidad', icon: Scale },
+  { id: 'importar', label: 'Importar', icon: FileUp },
+  { id: 'usuarios', label: 'Usuarios', icon: Shield },
 ]
 
 function SideNav({
   page,
   openCount,
-  dueCount,
   onNavigate,
   onReset,
+  showSample,
+  permissions,
 }: {
   page: PageId
   openCount: number
-  dueCount: number
   onNavigate: () => void
   onReset: () => void
+  showSample: boolean
+  permissions: readonly string[]
 }) {
   const item = (entry: { id: PageId; label: string; icon: LucideIcon }) => {
     const active = page === entry.id
@@ -69,9 +83,6 @@ function SideNav({
         {entry.id === 'cobrar' && openCount > 0 ? (
           <span className={`ml-auto text-[11px] tabular-nums ${active ? 'text-espresso' : 'text-brass'}`}>{openCount}</span>
         ) : null}
-        {entry.id === 'pagar' && dueCount > 0 ? (
-          <span className={`ml-auto text-[11px] tabular-nums ${active ? 'text-espresso' : 'text-brass'}`}>{dueCount}</span>
-        ) : null}
       </button>
     )
   }
@@ -83,32 +94,37 @@ function SideNav({
         <p className="mt-4 text-[11px] tracking-[0.22em] text-brass uppercase">Cartagena</p>
       </div>
       <nav className="flex-1 space-y-1 overflow-auto px-3">
-        {floor.map(item)}
-        <p className="px-3 pt-6 pb-2 text-[10px] tracking-[0.2em] text-brass/80 uppercase">Libros</p>
-        {books.map(item)}
+        {floor.filter((entry) => canOpen(entry.id, permissions)).map(item)}
+        {books.some((entry) => canOpen(entry.id, permissions)) ? <p className="px-3 pt-6 pb-2 text-[10px] tracking-[0.2em] text-brass/80 uppercase">Libros</p> : null}
+        {books.filter((entry) => canOpen(entry.id, permissions)).map(item)}
+        {closeBooks.some((entry) => canOpen(entry.id, permissions)) ? <p className="px-3 pt-6 pb-2 text-[10px] tracking-[0.2em] text-brass/80 uppercase">Cierre</p> : null}
+        {closeBooks.filter((entry) => canOpen(entry.id, permissions)).map(item)}
       </nav>
       <div className="px-6 py-5">
-        <p className="text-[11px] tracking-[0.16em] text-[#8a8a8a] uppercase">Caja principal</p>
-        <button type="button" className="mt-2 text-left text-xs text-[#9a9a9a] underline-offset-2 hover:text-brass hover:underline" onClick={onReset}>
-          Restaurar muestra
-        </button>
+        <p className="text-[11px] tracking-[0.16em] text-[#8a8a8a] uppercase">La Grasita</p>
+        {showSample ? (
+          <button type="button" className="mt-2 text-left text-xs text-[#9a9a9a] underline-offset-2 hover:text-brass hover:underline" onClick={onReset}>
+            Cargar muestra
+          </button>
+        ) : null}
       </div>
     </div>
   )
 }
 
 export function Shell({ page, children }: { page: PageId; children: ReactNode }) {
-  const { state, resetDemo } = useStore()
+  const { state, loadSample, restoreBackup, toast, mode, actor, access, syncing, signOut, can } = useStore()
   const [menu, setMenu] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [splash, setSplash] = useState<string | null>(null)
-  const openCount = state.sales.filter((sale) => sale.status === 'activa' && sale.balance > 0).length
-  const dueCount = state.payables.filter((payable) => payable.balance > 0).length
+  const fileRef = useRef<HTMLInputElement>(null)
+  const openCount = state.sales.filter((sale) => !sale.voided && sale.balance > 0).length
+  const showSample = bookIsEmpty(state) && !bookHasRealData(state)
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="aside-in sticky top-0 hidden h-screen lg:block">
-        <SideNav page={page} openCount={openCount} dueCount={dueCount} onNavigate={() => setMenu(false)} onReset={() => setConfirm(true)} />
+        <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => setConfirm(true)} showSample={showSample && can('import.restore')} permissions={access.permissions} />
       </aside>
       <div className={`fixed inset-0 z-40 lg:hidden ${menu ? '' : 'pointer-events-none'}`} inert={menu ? undefined : true}>
         <button
@@ -119,7 +135,7 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
           onClick={() => setMenu(false)}
         />
         <div className={`absolute inset-y-0 left-0 w-[240px] ${menu ? 'menu-drawer' : '-translate-x-[105%]'}`}>
-          <SideNav page={page} openCount={openCount} dueCount={dueCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} />
+          <SideNav page={page} openCount={openCount} onNavigate={() => setMenu(false)} onReset={() => { setMenu(false); setConfirm(true) }} showSample={showSample && can('import.restore')} permissions={access.permissions} />
         </div>
       </div>
       <div className="min-w-0">
@@ -132,11 +148,43 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
             Vender
           </button>
         </div>
-        <main className="mx-auto w-full max-w-[1280px] px-4 py-6 sm:px-6 lg:px-10 lg:py-10">{children}</main>
+        <main className="mx-auto w-full max-w-[1280px] px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+          {mode === 'local' ? (
+            <div className="mb-6 rounded-2xl border border-brass/40 bg-brass/10 px-4 py-3 text-sm">
+              Modo local: este libro vive solo en este navegador y aquí entras como dueño. Para el libro compartido, configura Supabase y las variables del servidor. Los pasos están en el README.
+            </div>
+          ) : (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+              <p>{syncing ? 'Guardando…' : 'Libro compartido'} · {actor.name}{access.roleName ? ` · ${access.roleName}` : ''}</p>
+              <button type="button" className="text-brass-deep" onClick={() => void signOut()}>Salir</button>
+            </div>
+          )}
+          {can('import.restore') ? <div className="mb-6 flex flex-wrap gap-3 text-sm">
+            <button type="button" className="text-brass-deep" onClick={() => downloadBackup(state)}>Descargar respaldo JSON</button>
+            <button type="button" className="text-muted" onClick={() => fileRef.current?.click()}>Restaurar respaldo</button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (!file) return
+                if (bookHasRealData(state) && !window.confirm('Esto reemplaza el libro actual. Si hay ventas o cartera, se pierden. ¿Continuar?')) return
+                void file.text().then(async (raw) => {
+                  const result = await restoreBackup(raw)
+                  if (!result.ok) toast(result.error, 'warn')
+                })
+              }}
+            />
+          </div> : null}
+          {children}
+        </main>
       </div>
-      <Modal open={confirm} kicker="Datos de muestra" title="Restaurar el libro" onClose={() => setConfirm(false)}>
+      <Modal open={confirm} kicker="Datos de muestra" title="Cargar la muestra" onClose={() => setConfirm(false)}>
         <p className="text-sm leading-6 text-muted">
-          Se borran las ventas, compras y cambios de este navegador, y La Grasita Store vuelve a la muestra de la tienda.
+          Carga prendas y ventas inventadas para mirar el punto de venta. No es la contabilidad de la tienda, y solo se ofrece cuando el libro está vacío.
         </p>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setConfirm(false)}>
@@ -144,12 +192,15 @@ export function Shell({ page, children }: { page: PageId; children: ReactNode })
           </Button>
           <Button
             onClick={() => {
-              resetDemo()
+              void (async () => {
+              const result = await loadSample()
               setConfirm(false)
-              setSplash('Restaurando el libro')
+              if (!result.ok) toast(result.error, 'warn')
+              else setSplash('Cargando la muestra')
+              })()
             }}
           >
-            Restaurar
+            Cargar
           </Button>
         </div>
       </Modal>

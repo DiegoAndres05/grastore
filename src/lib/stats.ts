@@ -1,4 +1,4 @@
-import { lineNets } from './books'
+import { isRetailSale } from './format'
 import type { Sale } from '../types'
 
 export type Grain = 'dia' | 'semana' | 'mes'
@@ -94,23 +94,14 @@ export function buildBuckets(grain: Grain, count: number, now = new Date()) {
   }))
 }
 
-function unitsOf(sale: Sale) {
-  return sale.lines.reduce((qty, line) => qty + line.qty, 0)
-}
-
-function costOf(sale: Sale) {
-  return sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0)
-}
-
 function fill(sales: Sale[], frame: { start: Date; end: Date; label: string }): Bucket {
-  const billed = sales.filter((sale) => inRange(sale.date, frame.start, frame.end))
-  const reversed = sales.filter((sale) => sale.returnedAt && inRange(sale.returnedAt, frame.start, frame.end))
+  const inside = sales.filter((sale) => isRetailSale(sale) && inRange(sale.date, frame.start, frame.end))
   return {
     ...frame,
-    total: billed.reduce((sum, sale) => sum + sale.total, 0) - reversed.reduce((sum, sale) => sum + sale.total, 0),
-    tickets: billed.length - reversed.length,
-    units: billed.reduce((sum, sale) => sum + unitsOf(sale), 0) - reversed.reduce((sum, sale) => sum + unitsOf(sale), 0),
-    cost: billed.reduce((sum, sale) => sum + costOf(sale), 0) - reversed.reduce((sum, sale) => sum + costOf(sale), 0),
+    total: inside.reduce((sum, sale) => sum + sale.total, 0),
+    tickets: inside.length,
+    units: inside.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty, 0), 0),
+    cost: inside.reduce((sum, sale) => sum + sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0),
   }
 }
 
@@ -122,7 +113,7 @@ export function series(sales: Sale[], grain: Grain, count: number, now = new Dat
   const span = end.getTime() - start.getTime()
   const previousFrames = buildBuckets(grain, count, new Date(start.getTime() - 1))
   const previous = previousFrames.map((frame) => fill(sales, frame))
-  const currentSales = sales.filter((sale) => inRange(sale.date, start, end) && !(sale.returnedAt && inRange(sale.returnedAt, start, end)))
+  const currentSales = sales.filter((sale) => inRange(sale.date, start, end))
   return { buckets, previous, currentSales, start, end: new Date(end.getTime() - 1), span }
 }
 
@@ -133,27 +124,31 @@ export function rangeLabel(start: Date, end: Date) {
 
 export function topProducts(sales: Sale[], limit = 5) {
   const map = new Map<string, { name: string; detail: string; total: number; units: number }>()
-  for (const sale of sales) {
-    const nets = lineNets(sale)
-    sale.lines.forEach((line, index) => {
+  for (const sale of sales.filter(isRetailSale)) {
+    for (const line of sale.lines) {
       const key = `${line.productId}`
       const current = map.get(key) ?? { name: line.name, detail: `${line.color} · ${line.size}`, total: 0, units: 0 }
-      current.total += nets[index] ?? 0
+      current.total += line.price * line.qty
       current.units += line.qty
       map.set(key, current)
-    })
+    }
   }
   return [...map.values()].sort((a, b) => b.total - a.total).slice(0, limit)
 }
 
+export function byMethod(sales: Sale[]) {
+  const map = new Map<string, number>()
+  for (const sale of sales.filter(isRetailSale)) map.set(sale.method, (map.get(sale.method) ?? 0) + sale.total)
+  return [...map.entries()].sort((a, b) => b[1] - a[1])
+}
+
 export function byCategory(sales: Sale[], categories: Map<string, string>) {
   const map = new Map<string, number>()
-  for (const sale of sales) {
-    const nets = lineNets(sale)
-    sale.lines.forEach((line, index) => {
+  for (const sale of sales.filter(isRetailSale)) {
+    for (const line of sale.lines) {
       const category = categories.get(line.productId) ?? 'Otras'
-      map.set(category, (map.get(category) ?? 0) + (nets[index] ?? 0))
-    })
+      map.set(category, (map.get(category) ?? 0) + line.qty * line.price)
+    }
   }
   return [...map.entries()].sort((a, b) => b[1] - a[1])
 }

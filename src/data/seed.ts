@@ -1,5 +1,5 @@
-import { makeMovement } from '../lib/books'
-import type { CashAccount, Customer, PayMethod, Product, Purchase, Sale, State, Supplier } from '../types'
+import { emptyState } from '../lib/book'
+import type { Customer, PayMethod, Product, Purchase, Sale, State, Supplier } from '../types'
 
 function iso(daysAgo: number, hour: number, minute = 0) {
   const date = new Date()
@@ -139,14 +139,10 @@ function buildHistory(): Sale[] {
         discount: 0,
         total,
         method,
-        account: method === 'efectivo' ? 'efectivo' : method === 'tarjeta' ? 'tarjeta' : 'nequi',
         paid: total,
-        downPaid: total,
         balance: 0,
         tendered: method === 'efectivo' ? total : null,
         note: '',
-        status: 'activa',
-        returnedAt: null,
       })
     }
   }
@@ -172,13 +168,6 @@ function buildSales(): Sale[] {
     const total = lines.reduce((sum, line) => sum + line.price * line.qty, 0)
     const customer = people.find((item) => item.id === draft.customerId)
     const paid = draft.method === 'credito' ? (draft.paid ?? 0) : total
-    const account: CashAccount | null = paid <= 0
-      ? null
-      : draft.method === 'credito' || draft.method === 'efectivo'
-        ? 'efectivo'
-        : draft.method === 'tarjeta'
-          ? 'tarjeta'
-          : 'nequi'
     return {
       id: `sale-${index + 1}`,
       number: `V-${1040 + index}`,
@@ -189,14 +178,10 @@ function buildSales(): Sale[] {
       discount: 0,
       total,
       method: draft.method,
-      account,
       paid,
-      downPaid: paid,
       balance: total - paid,
       tendered: draft.method === 'efectivo' ? total : null,
       note: '',
-      status: 'activa' as const,
-      returnedAt: null,
     }
   })
 }
@@ -240,26 +225,9 @@ function buildPurchases(): Purchase[] {
       supplierName: supplier.name,
       lines,
       total: lines.reduce((sum, line) => sum + line.cost * line.qty, 0),
-      paid: lines.reduce((sum, line) => sum + line.cost * line.qty, 0),
-      balance: 0,
-      account: 'efectivo' as const,
       note: draft.note,
     }
   })
-}
-
-export function createEmpty(): State {
-  return {
-    products: [],
-    customers: [],
-    suppliers: [],
-    sales: [],
-    purchases: [],
-    collections: [],
-    movements: [],
-    payables: [],
-    seq: { sale: 1000, purchase: 1, payable: 1 },
-  }
 }
 
 export function createSeed(): State {
@@ -280,45 +248,19 @@ export function createSeed(): State {
       customerName: sale.customerName,
       amount: sale.paid,
       method: 'efectivo' as const,
-      account: 'efectivo' as const,
       note: 'Abono inicial',
       saleId: sale.id,
-      applications: [],
     }))
-  const purchases = [...buildPurchases()].reverse()
-  const orderedSales = [...sales].reverse()
-  const movements = [
-    ...orderedSales.filter((sale) => sale.downPaid > 0 && sale.account).map((sale) => makeMovement({
-      id: `mov-${sale.id}`,
-      date: sale.date,
-      account: sale.account as CashAccount,
-      direction: 'in',
-      amount: sale.downPaid,
-      kind: 'venta',
-      concept: `Venta ${sale.number}`,
-      refId: sale.id,
-    })),
-    ...purchases.filter((purchase) => purchase.paid > 0 && purchase.account).map((purchase) => makeMovement({
-      id: `mov-${purchase.id}`,
-      date: purchase.date,
-      account: purchase.account as CashAccount,
-      direction: 'out',
-      amount: purchase.paid,
-      kind: 'compra',
-      concept: `Compra ${purchase.number}`,
-      refId: purchase.id,
-    })),
-  ].sort((a, b) => b.date.localeCompare(a.date))
 
   return {
+    ...emptyState(),
     products,
     customers,
     suppliers,
-    sales: orderedSales,
-    purchases,
+    sales: [...sales].reverse(),
+    purchases: [...buildPurchases()].reverse(),
     collections,
-    movements,
-    payables: [],
-    seq: { sale: 1000 + sales.length, purchase: 180 + buyDrafts.length, payable: 1 },
+    seq: { ...emptyState().seq, sale: 1000 + sales.length, purchase: 180 + buyDrafts.length },
+    meta: { origin: 'seed', importedAt: null },
   }
 }
