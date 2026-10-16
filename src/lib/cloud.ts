@@ -1,4 +1,6 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
+import type { Access } from './access'
+import { hydrate } from './book'
 import type { State } from '../types'
 
 export type CloudConfig = { url: string; anonKey: string }
@@ -23,32 +25,47 @@ export function supabase() {
   return client
 }
 
-export async function fetchBook() {
+export type Snapshot = { version: number; state: State; access: Access }
+
+export async function fetchSnapshot() {
   const db = supabase()
   if (!db) return null
-  const { data, error } = await db.from('books').select('version,data').eq('id', 'main').maybeSingle()
+  const { data, error } = await db.rpc('book_snapshot')
   if (error) throw new Error(error.message)
-  if (!data) return null
-  return { version: data.version as number, data: data.data as State }
+  const snap = data as Snapshot
+  return { version: snap.version, state: hydrate(snap.state), access: snap.access }
 }
 
-export async function saveBook(state: State, version: number, userId: string) {
+export async function postBook(action: string, input: unknown) {
   const db = supabase()
-  if (!db) return { ok: false as const, conflict: false, message: 'Supabase no está configurado' }
-  if (version <= 0) {
-    const { data, error } = await db.from('books').insert({ id: 'main', version: 1, data: state, updated_by: userId }).select('version').maybeSingle()
-    if (error) return { ok: false as const, conflict: error.code === '23505', message: error.message }
-    return { ok: true as const, version: (data?.version as number) ?? 1 }
+  const session = await db?.auth.getSession()
+  const token = session?.data.session?.access_token
+  if (!token) return { ok: false as const, error: 'No hay sesión', conflict: false }
+  const response = await fetch('/api/book', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, input }),
+  })
+  const body = (await response.json()) as { ok?: boolean; error?: string; conflict?: boolean; version?: number; state?: unknown; access?: Access; data?: unknown }
+  if (!response.ok || !body.ok || !body.access) {
+    return { ok: false as const, error: body.error || 'No se pudo guardar', conflict: Boolean(body.conflict) }
   }
-  const { data, error } = await db
-    .from('books')
-    .update({ version: version + 1, data: state, updated_by: userId, updated_at: new Date().toISOString() })
-    .eq('id', 'main')
-    .eq('version', version)
-    .select('version')
-  if (error) return { ok: false as const, conflict: false, message: error.message }
-  if (!data?.length) return { ok: false as const, conflict: true, message: 'Otro usuario guardó el libro' }
-  return { ok: true as const, version: data[0].version as number }
+  return { ok: true as const, version: body.version ?? 0, state: hydrate(body.state), access: body.access, data: body.data }
+}
+
+export async function usersRequest(method: 'GET' | 'POST', input?: unknown) {
+  const db = supabase()
+  const session = await db?.auth.getSession()
+  const token = session?.data.session?.access_token
+  if (!token) return { ok: false as const, error: 'No hay sesión' }
+  const response = await fetch('/api/users', {
+    method,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: method === 'POST' ? JSON.stringify(input ?? {}) : undefined,
+  })
+  const body = (await response.json()) as { ok?: boolean; error?: string; users?: unknown; roles?: unknown; catalog?: unknown }
+  if (!response.ok || !body.ok) return { ok: false as const, error: body.error || 'No se pudo guardar' }
+  return { ok: true as const, users: body.users, roles: body.roles, catalog: body.catalog }
 }
 
 export async function loadProfile(session: Session) {

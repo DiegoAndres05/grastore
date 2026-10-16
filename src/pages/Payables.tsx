@@ -27,8 +27,8 @@ export function Payables() {
   const open = state.payables.filter((item) => item.balance > 0)
   const total = open.reduce((sum, item) => sum + item.balance, 0)
 
-  function create() {
-    const result = savePayable({ creditor, concept, kind, amount, date })
+  async function create() {
+    const result = await savePayable({ creditor, concept, kind, amount, date })
     if (!result.ok) {
       setError(result.error)
       return
@@ -40,8 +40,8 @@ export function Payables() {
     toast('Deuda registrada')
   }
 
-  function pay(id: string) {
-    const result = payPayable({ payableId: id, amount: payAmount, accountId, date })
+  async function pay(id: string) {
+    const result = await payPayable({ payableId: id, amount: payAmount, accountId, date })
     if (!result.ok) {
       toast(result.error, 'warn')
       return

@@ -110,10 +110,10 @@ export function Pos() {
     setCart((lines) => lines.map((line) => (line.productId === productId ? { ...line, price } : line)))
   }
 
-  function cobrar() {
+  async function cobrar() {
     if (lock.current) return
     lock.current = true
-    const result = checkout({
+    const result = await checkout({
       lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
       customerId: customerId || null,
       discount: safeDiscount,
@@ -140,12 +140,12 @@ export function Pos() {
     setReceipt(result.data)
   }
 
-  function apartar() {
+  async function apartar() {
     if (!customerId) {
       setError('El plan separe necesita un cliente')
       return
     }
-    const result = layaway({
+    const result = await layaway({
       customerId,
       lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
       deposit: Math.min(paid, total),

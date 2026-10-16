@@ -42,10 +42,10 @@ export function Purchases() {
 
   const total = lines.reduce((sum, line) => sum + line.qty * line.cost, 0)
 
-  function save() {
+  async function save() {
     if (lock.current) return
     lock.current = true
-    const result = purchase({
+    const result = await purchase({
       supplierId,
       note,
       date,
@@ -77,7 +77,7 @@ export function Purchases() {
             {state.investments.map((item) => (
               <li key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-line px-4 py-3 text-sm">
                 <span>{item.supplierName} · pendiente {money(item.amount - item.allocated)}{item.note ? ` · ${item.note}` : ''}</span>
-                {item.allocated < item.amount ? <button type="button" className="text-brass-deep" onClick={() => settleInvestment(item.id)}>Ya entró al inventario</button> : <span className="text-muted">Recibida</span>}
+                {item.allocated < item.amount ? <button type="button" className="text-brass-deep" onClick={() => { void settleInvestment(item.id).then((result) => { if (!result.ok) toast(result.error, 'warn'); else toast('Inversión recibida') }) }}>Ya entró al inventario</button> : <span className="text-muted">Recibida</span>}
               </li>
             ))}
           </ul>
@@ -129,12 +129,13 @@ export function Purchases() {
           <Field label="Nota"><input className={inputClass} value={investNote} onChange={(event) => setInvestNote(event.target.value)} /></Field>
           <FormError>{error}</FormError>
           <Button onClick={() => {
-            const result = invest({ supplierId, amount: investAmount, note: investNote, date, accountId: accountId || null, onCredit: !accountId })
-            if (!result.ok) { setError(result.error); return }
-            setInvestOpen(false)
-            setInvestAmount(0)
-            setInvestNote('')
-            toast('Inversión registrada')
+            void invest({ supplierId, amount: investAmount, note: investNote, date, accountId: accountId || null, onCredit: !accountId }).then((result) => {
+              if (!result.ok) { setError(result.error); return }
+              setInvestOpen(false)
+              setInvestAmount(0)
+              setInvestNote('')
+              toast('Inversión registrada')
+            })
           }}>Guardar</Button>
         </div>
       </Modal>

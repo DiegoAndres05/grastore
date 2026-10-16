@@ -66,7 +66,7 @@ export function Sales() {
                     <div className="min-w-0">
                       <p className="text-sm">{sale.number}</p>
                       <p className="mt-1 truncate">{sale.customerName}</p>
-                      <p className="mt-1 text-xs text-muted">{dateTime(sale.date)} · {sale.lines.length === 1 ? `${sale.lines[0].name} · ${sale.lines[0].size}` : lineCount(units)}</p>
+                      <p className="mt-1 text-xs text-muted">{dateTime(sale.date)} · {sale.lines.length === 1 ? `${sale.lines[0].name} · ${sale.lines[0].size}` : lineCount(units)}{sale.createdByName ? ` · ${sale.createdByName}` : ''}</p>
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-sm tabular-nums">{money(sale.total)}</p>
@@ -126,7 +126,7 @@ export function Sales() {
 }
 
 function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
-  const { voidSale, updateSale, returnSale, toast } = useStore()
+  const { voidSale, updateSale, returnSale, toast, can } = useStore()
   const [prices, setPrices] = useState(sale.lines.map((line) => line.price))
   const [when, setWhen] = useState(sale.date.slice(0, 10))
   const [returnQty, setReturnQty] = useState(sale.lines.map(() => 0))
@@ -150,15 +150,17 @@ function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
       <dl className="mt-5 space-y-2 border-t border-line pt-4 text-sm">
         {sale.discount > 0 ? <div className="flex justify-between"><dt className="text-muted">Descuento</dt><dd className="tabular-nums">{money(sale.discount)}</dd></div> : null}
         <div className="flex justify-between"><dt className="text-muted">Total</dt><dd className="font-serif text-2xl tabular-nums">{money(sale.total)}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted">Costo</dt><dd className="tabular-nums">{money(cost)}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted">Margen</dt><dd className="tabular-nums">{money(margin)} · {percent(sale.total ? margin / sale.total : 0)}</dd></div>
+        {can('products.costs') ? <div className="flex justify-between"><dt className="text-muted">Costo</dt><dd className="tabular-nums">{money(cost)}</dd></div> : null}
+        {can('products.costs') ? <div className="flex justify-between"><dt className="text-muted">Margen</dt><dd className="tabular-nums">{money(margin)} · {percent(sale.total ? margin / sale.total : 0)}</dd></div> : null}
+        {sale.createdByName ? <div className="flex justify-between"><dt className="text-muted">Registró</dt><dd>{sale.createdByName}</dd></div> : null}
+        {sale.voided && sale.voidedByName ? <div className="flex justify-between"><dt className="text-muted">Anuló</dt><dd>{sale.voidedByName}</dd></div> : null}
         {sale.balance > 0 ? <div className="flex justify-between text-warn"><dt>Saldo</dt><dd className="tabular-nums">{money(sale.balance)}</dd></div> : null}
       </dl>
       {sale.note ? <p className="mt-4 text-sm text-muted">{sale.note}</p> : null}
-      {sale.balance > 0 && sale.customerId && !sale.voided ? (
+      {sale.balance > 0 && sale.customerId && !sale.voided && can('collections.take') ? (
         <Button className="mt-6" onClick={onCollect}>Registrar abono</Button>
       ) : null}
-      {!sale.voided && sale.kind !== 'opening' ? (
+      {!sale.voided && sale.kind !== 'opening' && (can('sales.edit') || can('sales.return') || can('sales.void')) ? (
         <div className="mt-6 space-y-3 border-t border-line pt-4">
           <label className="block text-sm">
             <span className="mb-2 block text-[11px] tracking-[0.16em] text-muted uppercase">Fecha</span>
@@ -172,9 +174,10 @@ function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
             </label>
           ))}
           <Button variant="ghost" onClick={() => {
-            const result = updateSale(sale.id, { date: when, prices: prices.map((price, index) => ({ index, price })) })
-            if (!result.ok) toast(result.error, 'warn')
-            else toast('Venta actualizada')
+            void updateSale(sale.id, { date: when, prices: prices.map((price, index) => ({ index, price })) }).then((result) => {
+              if (!result.ok) toast(result.error, 'warn')
+              else toast('Venta actualizada')
+            })
           }}>Guardar precios</Button>
           <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Devolver</p>
           {sale.lines.map((line, index) => (
@@ -184,22 +187,25 @@ function SaleBody({ sale, onCollect }: { sale: Sale; onCollect: () => void }) {
             </label>
           ))}
           <Button variant="ghost" onClick={() => {
-            const result = returnSale({ saleId: sale.id, lines: returnQty.map((qty, index) => ({ index, qty })).filter((line) => line.qty > 0) })
-            if (!result.ok) toast(result.error, 'warn')
-            else toast('Devolución registrada')
+            void returnSale({ saleId: sale.id, lines: returnQty.map((qty, index) => ({ index, qty })).filter((line) => line.qty > 0) }).then((result) => {
+              if (!result.ok) toast(result.error, 'warn')
+              else toast('Devolución registrada')
+            })
           }}>Registrar devolución</Button>
           <Button variant="ghost" onClick={() => {
-            const result = voidSale(sale.id)
-            if (!result.ok) toast(result.error, 'warn')
-            else toast('Venta anulada')
+            void voidSale(sale.id).then((result) => {
+              if (!result.ok) toast(result.error, 'warn')
+              else toast('Venta anulada')
+            })
           }}>Anular venta</Button>
         </div>
       ) : null}
-      {!sale.voided && sale.kind === 'opening' ? (
+      {!sale.voided && sale.kind === 'opening' && can('sales.void') ? (
         <Button className="mt-6" variant="ghost" onClick={() => {
-          const result = voidSale(sale.id)
-          if (!result.ok) toast(result.error, 'warn')
-          else toast('Saldo inicial anulado')
+          void voidSale(sale.id).then((result) => {
+            if (!result.ok) toast(result.error, 'warn')
+            else toast('Saldo inicial anulado')
+          })
         }}>Anular saldo inicial</Button>
       ) : null}
     </div>

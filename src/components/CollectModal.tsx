@@ -43,10 +43,10 @@ export function CollectModal({
   const debtors = state.customers.filter((customer) => customer.balance > 0 || customer.id === chosen)
   const customer = state.customers.find((item) => item.id === chosen)
 
-  function submit() {
+  async function submit() {
     if (lock.current) return
     lock.current = true
-    const result = collect({ customerId: chosen, amount, method, note, saleId, date })
+    const result = await collect({ customerId: chosen, amount, method, note, saleId, date })
     if (!result.ok) {
       lock.current = false
       setError(result.error)

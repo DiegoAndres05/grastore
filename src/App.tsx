@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Shell } from './components/Shell'
 import { readPage, type PageId } from './lib/nav'
+import { canOpen } from './lib/nav'
+import { useStore } from './store'
 import { Accounting } from './pages/Accounting'
 import { Customers } from './pages/Customers'
 import { Dashboard } from './pages/Dashboard'
@@ -15,6 +17,7 @@ import { Receivables } from './pages/Receivables'
 import { Sales } from './pages/Sales'
 import { Statistics } from './pages/Statistics'
 import { Suppliers } from './pages/Suppliers'
+import { UsersPage } from './pages/Users'
 
 const titles: Record<PageId, string> = {
   inicio: 'Inicio',
@@ -31,9 +34,21 @@ const titles: Record<PageId, string> = {
   pagar: 'Por pagar',
   contabilidad: 'Contabilidad',
   importar: 'Importar',
+  usuarios: 'Usuarios',
+}
+
+function Denied() {
+  return (
+    <div className="rounded-3xl border border-line bg-card p-8">
+      <p className="text-[11px] tracking-[0.18em] text-brass uppercase">Acceso</p>
+      <h1 className="mt-3 font-serif text-4xl">Esta parte no está en tu rol</h1>
+      <p className="mt-3 max-w-lg text-sm text-muted">Si la necesitas para trabajar, pídesela al dueño. El permiso se revisa en el servidor, no solo en el menú.</p>
+    </div>
+  )
 }
 
 export default function App() {
+  const { access, mode } = useStore()
   const [page, setPage] = useState<PageId>(readPage)
   const [revealed, setRevealed] = useState(false)
   const [bar, setBar] = useState(0)
@@ -85,6 +100,8 @@ export default function App() {
       {revealed && bar > 0 ? <div key={bar} className="route-bar" aria-hidden="true" /> : null}
       {revealed ? (
         <div key={page} className="stage min-w-0">
+          {mode === 'cloud' && !access.roleId ? <p className="text-sm text-muted">Abriendo el libro…</p> : canOpen(page, access.permissions) ? (
+            <>
           {page === 'inicio' && <Dashboard />}
           {page === 'vender' && <Pos />}
           {page === 'ventas' && <Sales />}
@@ -99,6 +116,9 @@ export default function App() {
           {page === 'pagar' && <Payables />}
           {page === 'contabilidad' && <Accounting />}
           {page === 'importar' && <ImportBook />}
+          {page === 'usuarios' && <UsersPage />}
+            </>
+          ) : <Denied />}
         </div>
       ) : null}
     </Shell>

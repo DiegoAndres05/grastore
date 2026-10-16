@@ -10,6 +10,13 @@ export function Login() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [busy, setBusy] = useState(false)
+  const [openSignup, setOpenSignup] = useState(false)
+
+  useEffect(() => {
+    const db = supabase()
+    if (!db) return
+    void db.rpc('signup_open').then(({ data }) => setOpenSignup(Boolean(data)))
+  }, [])
 
   useEffect(() => {
     const node = document.getElementById('boot')
@@ -51,8 +58,12 @@ export function Login() {
       <div className="w-full max-w-md rounded-3xl border border-line bg-card p-6 sm:p-8">
         <img src="/logo.svg" alt="La Grasita Store" className="mx-auto w-40" />
         <p className="mt-4 text-center text-[11px] tracking-[0.22em] text-brass uppercase">Cartagena</p>
-        <h1 className="mt-3 text-center font-serif text-3xl">{mode === 'entrar' ? 'Entrar al libro' : 'Crear acceso'}</h1>
-        <p className="mt-2 text-center text-sm text-muted">Javier, Emeli y quien más lleve la tienda entran con su propio usuario. Cada registro guarda quién lo hizo.</p>
+        <h1 className="mt-3 text-center font-serif text-3xl">{mode === 'entrar' ? 'Entrar al libro' : 'Crear el acceso del dueño'}</h1>
+        <p className="mt-2 text-center text-sm text-muted">
+          {openSignup
+            ? 'La primera cuenta queda como dueño del negocio. Después solo esa persona crea trabajadores y administradores.'
+            : 'El registro público ya está cerrado. Entra con el correo que te dio el dueño.'}
+        </p>
         <form
           className="mt-6 space-y-4"
           onSubmit={(event) => {
@@ -62,7 +73,7 @@ export function Login() {
         >
           {mode === 'crear' ? (
             <Field label="Nombre">
-              <input className={inputClass} value={name} placeholder="Emeli" onChange={(event) => setName(event.target.value)} />
+              <input className={inputClass} value={name} placeholder="Tu nombre" onChange={(event) => setName(event.target.value)} />
             </Field>
           ) : null}
           <Field label="Correo">
@@ -77,9 +88,11 @@ export function Login() {
             {busy ? 'Espera…' : mode === 'entrar' ? 'Entrar' : 'Crear cuenta'}
           </Button>
         </form>
-        <button type="button" className="mt-4 w-full text-center text-sm text-brass-deep" onClick={() => setMode(mode === 'entrar' ? 'crear' : 'entrar')}>
-          {mode === 'entrar' ? 'Crear una cuenta nueva' : 'Ya tengo cuenta'}
-        </button>
+        {openSignup ? (
+          <button type="button" className="mt-4 w-full text-center text-sm text-brass-deep" onClick={() => setMode(mode === 'entrar' ? 'crear' : 'entrar')}>
+            {mode === 'entrar' ? 'Crear la cuenta del dueño' : 'Ya tengo cuenta'}
+          </button>
+        ) : null}
       </div>
     </div>
   )

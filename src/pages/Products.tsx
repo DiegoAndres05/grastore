@@ -20,7 +20,7 @@ const blank = (sku: string): ProductInput => ({
 })
 
 export function Products() {
-  const { state, saveProduct, setProductActive, addCategory, addColor, adjust, toast } = useStore()
+  const { state, saveProduct, setProductActive, addCategory, addColor, adjust, toast, can } = useStore()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('Todas')
   const [archived, setArchived] = useState(false)
@@ -71,8 +71,8 @@ export function Products() {
     setOpen(true)
   }
 
-  function save() {
-    const result = saveProduct(form, editing ?? undefined)
+  async function save() {
+    const result = await saveProduct(form, editing ?? undefined)
     if (!result.ok) {
       setError(result.error)
       return
@@ -93,7 +93,7 @@ export function Products() {
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => saveXlsx('inventario.xlsx', [{ name: 'Inventario', rows: inventoryRows(state) }])}>Excel</Button>
             <Button variant="ghost" onClick={() => saveCsv('inventario.csv', inventoryRows(state))}>CSV</Button>
-            <Button onClick={startCreate}>Nueva prenda</Button>
+            {can('products.write') ? <Button onClick={startCreate}>Nueva prenda</Button> : null}
           </div>
         }
       />
@@ -131,21 +131,23 @@ export function Products() {
                 <div className="mt-4 flex items-end justify-between gap-3">
                   <div>
                     <p className="text-sm tabular-nums">{money(product.price)}</p>
-                    <p className="mt-1 text-xs text-muted">{product.stock} und · margen {percent(margin)}</p>
+                    <p className="mt-1 text-xs text-muted">{product.stock} und{can('products.costs') ? ` · margen ${percent(margin)}` : ''}</p>
                   </div>
-                  <div className="flex gap-3">
+                  {can('products.write') ? <div className="flex gap-3">
                     <button type="button" className="text-sm text-brass-deep" onClick={() => startEdit(product)}>Editar</button>
                     <button
                       type="button"
                       className="text-sm text-muted"
                       onClick={() => {
-                        setProductActive(product.id, !product.active)
-                        toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                        void setProductActive(product.id, !product.active).then((result) => {
+                          if (!result.ok) toast(result.error, 'warn')
+                          else toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                        })
                       }}
                     >
                       {product.active ? 'Archivar' : 'Activar'}
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
               </li>
             )
@@ -159,7 +161,7 @@ export function Products() {
                 <th className={thClass}>SKU</th>
                 <th className={`${thClass} text-right`}>Stock</th>
                 <th className={`${thClass} text-right`}>Precio</th>
-                <th className={`${thClass} text-right`}>Margen</th>
+                {can('products.costs') ? <th className={`${thClass} text-right`}>Margen</th> : null}
                 <th className={thClass} />
               </tr>
             </thead>
@@ -183,19 +185,25 @@ export function Products() {
                       {product.active && product.stock <= product.minStock ? <span className="mt-1 block"><Badge tone={product.stock === 0 ? 'danger' : 'warn'}>{product.stock === 0 ? 'Agotada' : 'Bajo'}</Badge></span> : null}
                     </td>
                     <td className={`${tdClass} text-right tabular-nums`}>{money(product.price)}</td>
-                    <td className={`${tdClass} text-right tabular-nums`}>{percent(margin)}</td>
+                    {can('products.costs') ? <td className={`${tdClass} text-right tabular-nums`}>{percent(margin)}</td> : null}
                     <td className={`${tdClass} text-right`}>
+                      {can('products.write') ? (
+                        <>
                       <button type="button" className="text-sm text-brass-deep" onClick={() => startEdit(product)}>Editar</button>
                       <button
                         type="button"
                         className="ml-3 text-sm text-muted"
                         onClick={() => {
-                          setProductActive(product.id, !product.active)
-                          toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                          void setProductActive(product.id, !product.active).then((result) => {
+                            if (!result.ok) toast(result.error, 'warn')
+                            else toast(product.active ? 'Prenda archivada' : 'Prenda de vuelta en el piso')
+                          })
                         }}
                       >
                         {product.active ? 'Archivar' : 'Activar'}
                       </button>
+                        </>
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -206,7 +214,7 @@ export function Products() {
         </>
       )}
 
-      <section className="mt-8 rounded-3xl border border-line p-5">
+      {can('inventory.adjust') ? <section className="mt-8 rounded-3xl border border-line p-5">
         <h2 className="font-serif text-2xl">Ajuste de inventario</h2>
         <p className="mt-2 text-sm text-muted">Suma o resta unidades y deja el motivo. No cambia el costo.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_100px_160px_1fr_auto]">
@@ -218,12 +226,13 @@ export function Products() {
           <input className={inputClass} type="date" value={adjustDate} onChange={(event) => setAdjustDate(event.target.value)} />
           <input className={inputClass} placeholder="Motivo" value={reason} onChange={(event) => setReason(event.target.value)} />
           <Button variant="ghost" onClick={() => {
-            const result = adjust({ productId: adjustId, qtyDelta: delta, reason, date: adjustDate })
-            if (!result.ok) toast(result.error, 'warn')
-            else { toast('Ajuste registrado'); setDelta(0); setReason('') }
+            void adjust({ productId: adjustId, qtyDelta: delta, reason, date: adjustDate }).then((result) => {
+              if (!result.ok) toast(result.error, 'warn')
+              else { toast('Ajuste registrado'); setDelta(0); setReason('') }
+            })
           }}>Ajustar</Button>
         </div>
-      </section>
+      </section> : null}
 
       <Modal open={open} kicker="Catálogo" title={editing ? 'Editar prenda' : 'Nueva prenda'} onClose={() => setOpen(false)}>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -248,9 +257,9 @@ export function Products() {
           <Field label="Stock mínimo">
             <input className={inputClass} inputMode="numeric" value={form.minStock} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value.replace(/\D/g, '')) || 0 })} />
           </Field>
-          <Field label="Costo">
+          {can('products.costs') ? <Field label="Costo">
             <MoneyInput value={form.cost} onChange={(cost) => setForm({ ...form, cost })} />
-          </Field>
+          </Field> : null}
           <Field label="Precio de venta" hint={belowCost ? 'Se vende por debajo del costo.' : undefined}>
             <MoneyInput value={form.price} onChange={(price) => setForm({ ...form, price })} />
           </Field>
@@ -265,13 +274,13 @@ export function Products() {
           <Field label="Nueva categoría">
             <div className="flex gap-2">
               <input className={inputClass} value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
-              <Button variant="ghost" onClick={() => { const result = addCategory(categoryName); if (!result.ok) setError(result.error); else { setCategoryName(''); setForm({ ...form, category: categoryName.trim() }) } }}>Agregar</Button>
+              <Button variant="ghost" onClick={() => { void addCategory(categoryName).then((result) => { if (!result.ok) setError(result.error); else { setCategoryName(''); setForm({ ...form, category: categoryName.trim() }) } }) }}>Agregar</Button>
             </div>
           </Field>
           <Field label="Nuevo color">
             <div className="flex gap-2">
               <input className={inputClass} value={colorName} onChange={(event) => setColorName(event.target.value)} />
-              <Button variant="ghost" onClick={() => { const result = addColor(colorName); if (!result.ok) setError(result.error); else { setColorName(''); setForm({ ...form, color: colorName.trim() }) } }}>Agregar</Button>
+              <Button variant="ghost" onClick={() => { void addColor(colorName).then((result) => { if (!result.ok) setError(result.error); else { setColorName(''); setForm({ ...form, color: colorName.trim() }) } }) }}>Agregar</Button>
             </div>
           </Field>
         </div>

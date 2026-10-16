@@ -28,8 +28,8 @@ export function Ledger() {
   const selected = state.accounts.find((account) => account.id === accountId) ?? state.accounts[0]
   const rows = useMemo(() => (selected ? ledgerRows(state, selected.id).slice().reverse() : []), [state, selected])
 
-  function move() {
-    const result = transfer({ fromId, toId, amount, date, note })
+  async function move() {
+    const result = await transfer({ fromId, toId, amount, date, note })
     if (!result.ok) {
       setError(result.error)
       return
@@ -40,8 +40,8 @@ export function Ledger() {
     toast('Traslado registrado')
   }
 
-  function createAccount() {
-    const result = saveAccount({ name, kind, openingBalance: opening })
+  async function createAccount() {
+    const result = await saveAccount({ name, kind, openingBalance: opening })
     if (!result.ok) {
       toast(result.error, 'warn')
       return
