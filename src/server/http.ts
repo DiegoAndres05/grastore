@@ -23,10 +23,38 @@ function serverEnv() {
   return { url: projectUrl(url), anon, service }
 }
 
+// The server never opens Realtime. Without this, createClient asks for a
+// WebSocket and crashes on the Node runtime Vercel uses for /api.
+class ServerSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
+  readyState = 3
+  url = ''
+  protocol = ''
+  onopen = null
+  onmessage = null
+  onclose = null
+  onerror = null
+  close() {}
+  send() {}
+  addEventListener() {}
+  removeEventListener() {}
+}
+
+function serverClient(url: string, key: string, headers?: Record<string, string>) {
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: ServerSocket as unknown as typeof WebSocket },
+    global: headers ? { headers } : undefined,
+  })
+}
+
 function adminClient() {
   const env = serverEnv()
   if (!env) return null
-  return createClient(env.url, env.service, { auth: { persistSession: false, autoRefreshToken: false } })
+  return serverClient(env.url, env.service)
 }
 
 async function readBody(req: IncomingMessage) {
@@ -47,10 +75,7 @@ async function caller(req: IncomingMessage, admin: SupabaseClient) {
   const header = req.headers.authorization ?? ''
   const jwt = header.replace(/^Bearer\s+/i, '')
   if (!jwt) return { error: 'No hay sesión' }
-  const userClient = createClient(env.url, env.anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-  })
+  const userClient = serverClient(env.url, env.anon, { Authorization: `Bearer ${jwt}` })
   const { data, error } = await userClient.auth.getUser()
   if (error || !data.user) return { error: 'La sesión no es válida' }
   const { data: profile, error: profileError } = await admin
@@ -117,6 +142,14 @@ async function touchSignal(admin: SupabaseClient) {
 }
 
 export async function handleBook(req: IncomingMessage, res: ServerResponse) {
+  try {
+    return await handleBookRequest(req, res)
+  } catch (error) {
+    return send(res, 500, { ok: false, error: error instanceof Error ? error.message : 'No se pudo guardar' })
+  }
+}
+
+async function handleBookRequest(req: IncomingMessage, res: ServerResponse) {
   if (req.method !== 'POST') return send(res, 405, { ok: false, error: 'Usa POST' })
   const admin = adminClient()
   if (!admin) return send(res, 500, { ok: false, error: 'El servidor no tiene la clave de Supabase' })

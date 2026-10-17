@@ -150,6 +150,7 @@ export function StoreProvider({
     const pull = async (announce: boolean) => {
       const snap = await fetchSnapshot()
       if (cancel || !snap) return
+      if (snap.version < versionRef.current) return
       if (!snap.access.active) {
         await db?.auth.signOut()
         return

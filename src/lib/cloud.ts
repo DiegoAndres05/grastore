@@ -47,7 +47,12 @@ export async function postBook(action: string, input: unknown) {
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ action, input }),
   })
-  const body = (await response.json()) as { ok?: boolean; error?: string; conflict?: boolean; version?: number; state?: unknown; access?: Access; data?: unknown }
+  let body: { ok?: boolean; error?: string; conflict?: boolean; version?: number; state?: unknown; access?: Access; data?: unknown }
+  try {
+    body = (await response.json()) as typeof body
+  } catch {
+    return { ok: false as const, error: 'El servidor no pudo guardar el libro', conflict: false }
+  }
   if (!response.ok || !body.ok || !body.access) {
     return { ok: false as const, error: body.error || 'No se pudo guardar', conflict: Boolean(body.conflict) }
   }
