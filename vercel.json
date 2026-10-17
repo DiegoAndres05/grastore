@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/book.ts": { "runtime": "nodejs22.x" },
+    "api/users.ts": { "runtime": "nodejs22.x" }
+  }
+}
