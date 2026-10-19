@@ -4,12 +4,13 @@ import { balanceSheet } from '../lib/accounting'
 import { money } from '../lib/format'
 import { defaultDecisions, importBook, parseWorkbook, type ImportDecisions, type ReceivableKind, type WorkbookPreview } from '../lib/importWorkbook'
 import { bookHasRealData } from '../lib/book'
+import { go } from '../lib/nav'
 import { useStore } from '../store'
 
 const steps = ['Archivo', 'Inventario', 'Clientes', 'Dinero', 'Confirmar']
 
 export function ImportBook() {
-  const { state, replaceBook, actor } = useStore()
+  const { state, replaceBook, importClosings, actor, toast } = useStore()
   const [step, setStep] = useState(0)
   const [preview, setPreview] = useState<WorkbookPreview | null>(null)
   const [decisions, setDecisions] = useState<ImportDecisions | null>(null)
@@ -34,6 +35,16 @@ export function ImportBook() {
 
   function updateProduct(key: string, patch: Partial<ImportDecisions['products'][number]>) {
     setDecisions((current) => current && { ...current, products: current.products.map((item) => (item.key === key ? { ...item, ...patch } : item)) })
+  }
+
+  async function importHistory() {
+    if (!preview?.closings.length) {
+      toast('Esa hoja Balance no tiene meses para importar', 'warn')
+      return
+    }
+    const result = await importClosings(preview.closings)
+    if (!result.ok) toast(result.error, 'warn')
+    else go('balance')
   }
 
   async function commit() {
@@ -66,6 +77,12 @@ export function ImportBook() {
         ))}
       </div>
       {error ? <p className="mb-4 text-sm text-danger">{error}</p> : null}
+      {preview && bookHasRealData(state) ? (
+        <div className="mb-6 rounded-2xl border border-brass/40 bg-brass/10 p-4 text-sm">
+          <p>Este libro ya tiene datos. Puedes traer solo los meses de la hoja Balance, sin borrar ventas, inventario ni cartera.</p>
+          <Button className="mt-3" variant="ghost" onClick={importHistory}>Importar solo histórico de Balance</Button>
+        </div>
+      ) : null}
       {step === 0 ? (
         <label className="block rounded-3xl border border-dashed border-line px-6 py-16 text-center">
           <p className="font-serif text-2xl">Suelta el archivo .xlsx</p>
@@ -184,6 +201,36 @@ export function ImportBook() {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={decisions.includeCash} onChange={(event) => setDecisions({ ...decisions, includeCash: event.target.checked })} /> Usar estos saldos como apertura de caja</label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={decisions.includePayables} onChange={(event) => setDecisions({ ...decisions, includePayables: event.target.checked })} /> Importar deudas ({money(preview.payables.reduce((sum, item) => sum + item.amount, 0))})</label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={decisions.includeInvestments} onChange={(event) => setDecisions({ ...decisions, includeInvestments: event.target.checked })} /> Importar inversiones sin prenda ({money(preview.investments.reduce((sum, item) => sum + item.amount, 0))})</label>
+          <section>
+            <h2 className="font-serif text-2xl">Meses del Balance</h2>
+            {preview.closings.length === 0 ? <p className="mt-2 text-sm text-muted">La hoja Balance no trae bloques de patrimonio por mes.</p> : (
+              <div className="mt-3 overflow-x-auto rounded-2xl border border-line">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] tracking-[0.14em] text-muted uppercase">
+                      <th className="p-2">Periodo</th>
+                      <th className="p-2 text-right">Patrimonio</th>
+                      <th className="p-2 text-right">Venta</th>
+                      <th className="p-2 text-right">Ganancia</th>
+                      <th className="p-2 text-right">Sueldo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.closings.map((closing) => (
+                      <tr key={`${closing.label}-${closing.from}`} className="border-t border-line">
+                        <td className="p-2">{closing.label}</td>
+                        <td className="p-2 text-right tabular-nums">{closing.equity == null ? '—' : money(closing.equity)}</td>
+                        <td className="p-2 text-right tabular-nums">{closing.sales == null ? '—' : money(closing.sales)}</td>
+                        <td className="p-2 text-right tabular-nums">{closing.profit == null ? '—' : money(closing.profit)}</td>
+                        <td className="p-2 text-right tabular-nums">{closing.salary == null ? '—' : money(closing.salary)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={decisions.includeClosings} onChange={(event) => setDecisions({ ...decisions, includeClosings: event.target.checked })} /> Guardar estos meses como cierres históricos</label>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={decisions.includeOpeningPnl} onChange={(event) => setDecisions({ ...decisions, includeOpeningPnl: event.target.checked })} /> Guardar el histórico de ventas {preview.openingPnl ? money(preview.openingPnl.sales) : ''} como cifra de apertura del P y G</label>
           <Field label="Fecha de esa cifra">
             <input className={`${inputClass} max-w-xs`} type="date" value={decisions.openingPnlDate} onChange={(event) => setDecisions({ ...decisions, openingPnlDate: event.target.value })} />

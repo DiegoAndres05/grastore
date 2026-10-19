@@ -16,6 +16,7 @@ La interfaz está en español. Sin configurar un servidor, la app sigue funciona
 - Aportes y préstamos de capital. Préstamos a terceros, aparte de las ventas.
 - Balance: caja + cartera + inventario − por pagar − anticipos de apartados = patrimonio. Crear un apartado no cambia el patrimonio. Un plan separe importado sin prenda sigue en la cartera.
 - Pérdidas y ganancias por fechas, cierre mensual con sueldo (25% de la utilidad, configurable) y vista por día.
+- Balance: los meses del Excel y los que se cierran en la app, con patrimonio, ganancia y sueldo.
 - Importar el `.xlsx` de contabilidad, con vista previa para unir nombres, corregir colores y decidir qué entra.
 - Exportar inventario, ventas, cartera, deudas, caja y P y G a Excel o CSV.
 - Descargar y restaurar un respaldo JSON.
@@ -63,6 +64,7 @@ Un trabajador que llame la API no recibe costos, saldos de caja, gastos ni conta
 - Si entrar funciona pero guardar dice que falta la clave del servidor, falta `SUPABASE_SERVICE_ROLE_KEY` o no se redeployó.
 - En modo local cada navegador tiene su propio libro y entra como dueño.
 - En Supabase → Database → Publications, la tabla `book_signal` debe estar en `supabase_realtime`. El SQL ya la agrega.
+- Para que los meses del Balance se guarden en el libro compartido, corre `supabase/migrations/0005_closings.sql` en el SQL Editor y vuelve a desplegar. Sin ese SQL el modo local sí los guarda, pero Supabase los pierde en la siguiente escritura.
 - El navegador no consulta `profiles`. `0002` le quitó el permiso y esa consulta respondía 403. El nombre del aviso sale de los datos guardados al crear la cuenta. No hace falta otro SQL por eso.
 - `api/book` y `api/users` leen el JSON aunque la plataforma ya lo haya parseado. Si guardar respondía 400 sin un motivo claro, vuelve a desplegar para publicar esas funciones. No hay migración.
 - Si el login dice que el registro está cerrado y en Authentication → Users no hay nadie, la pantalla antigua trataba un error de `signup_open()` como si ya hubiera dueño. Corre `supabase/migrations/0003_signup_open.sql` y vuelve a desplegar. Para ver el estado actual, en el SQL Editor:
@@ -106,6 +108,7 @@ El asistente lee las seis hojas (`Inv Actual`, `CxC`, `CxP`, `Neq o Efe`, `Perd 
 | Último saldo de Nequi, efectivo y Bancolombia | Saldo inicial de cada cuenta. No se copian los mil movimientos. |
 | CxP | Deudas. `INYEC` queda como capital, `SUELDO` como sueldo, `LUZ` como servicio. |
 | Perd y Gan | Opcional. Ventas y costo históricos, con una fecha anterior al mes en curso para no mezclarlos con lo que se venda ahora. |
+| Bloques mensuales de Balance | Cierres con patrimonio, venta, ganancia y sueldo 25%. Se ven en **Balance**. Si el libro ya está importado, el botón «Importar solo histórico de Balance» agrega esos meses sin borrar el resto. |
 
 El balance del libro usa el inventario de la celda K, que **suma las prendas en existencia y las filas de inversión**. Esas inversiones no son prendas contadas una a una. GraStore las muestra aparte; la suma es la que debe coincidir con el patrimonio de la hoja Balance.
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { balanceSheet, monthlyClose, profitAndLoss } from './accounting'
+import { balanceHistory, balanceSheet, monthlyClose, profitAndLoss } from './accounting'
 import { emptyState } from './book'
 import {
   applyCancelLayaway,
   applyCapital,
+  applyCloseMonth,
   applyCompleteLayaway,
   applyExpense,
   applyLayaway,
@@ -487,5 +488,35 @@ describe('caja, gastos y patrimonio', () => {
     expect(sheet.receivable.layaways).toBe(40_000)
     expect(sheet.deposits).toBe(0)
     expect(sheet.equity).toBe(sheet.assets - sheet.liabilities)
+  })
+
+  it('cerrar el mes guarda ganancia y sueldo sin mover el patrimonio', () => {
+    const state = book()
+    const product = state.products[0]
+    const sold = applyCheckout(state, {
+      lines: [{ productId: product.id, qty: 1, price: 90_000 }],
+      customerId: null,
+      discount: 0,
+      method: 'efectivo',
+      paid: 90_000,
+      tendered: 90_000,
+      note: '',
+    })
+    expect(sold.ok).toBe(true)
+    if (!sold.ok) return
+    const before = balanceSheet(sold.data.state)
+    const now = new Date()
+    const closed = applyCloseMonth(sold.data.state, { year: now.getFullYear(), month: now.getMonth() + 1 })
+    expect(closed.ok).toBe(true)
+    if (!closed.ok) return
+    expect(balanceSheet(closed.data.state).equity).toBe(before.equity)
+    expect(closed.data.closing.locked).toBe(true)
+    expect(closed.data.closing.source).toBe('app')
+    expect(closed.data.closing.equity).toBe(before.equity)
+    expect(closed.data.closing.profit).toBe(40_000)
+    expect(closed.data.closing.salary).toBe(10_000)
+    const rows = balanceHistory(closed.data.state, now)
+    expect(rows.some((row) => row.source === 'app' && row.period === closed.data.closing.period)).toBe(true)
+    expect(rows.some((row) => row.source === 'vivo' && row.period === closed.data.closing.period)).toBe(false)
   })
 })

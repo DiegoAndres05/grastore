@@ -4,6 +4,7 @@ import { readPage, type PageId } from './lib/nav'
 import { canOpen } from './lib/nav'
 import { useStore } from './store'
 import { Accounting } from './pages/Accounting'
+import { Balance } from './pages/Balance'
 import { Customers } from './pages/Customers'
 import { Dashboard } from './pages/Dashboard'
 import { Expenses } from './pages/Expenses'
@@ -33,6 +34,7 @@ const titles: Record<PageId, string> = {
   gastos: 'Gastos',
   pagar: 'Por pagar',
   contabilidad: 'Contabilidad',
+  balance: 'Balance',
   importar: 'Importar',
   usuarios: 'Usuarios',
 }
@@ -115,6 +117,7 @@ export default function App() {
           {page === 'gastos' && <Expenses />}
           {page === 'pagar' && <Payables />}
           {page === 'contabilidad' && <Accounting />}
+          {page === 'balance' && <Balance />}
           {page === 'importar' && <ImportBook />}
           {page === 'usuarios' && <UsersPage />}
             </>

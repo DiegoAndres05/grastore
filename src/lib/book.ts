@@ -29,6 +29,7 @@ export function emptyState(): State {
     adjustments: [],
     investments: [],
     openingPnl: null,
+    closings: [],
     settings: { salarySharePct: 25, categories: [...CATEGORIES], colors: [...COLORS] },
     seq: { sale: 1, purchase: 1, layaway: 1, expense: 1 },
     meta: { origin: 'empty', importedAt: null },
@@ -85,6 +86,7 @@ export function hydrate(raw: unknown, origin?: BookOrigin): State {
     adjustments: asArray(source.adjustments),
     investments: asArray(source.investments),
     openingPnl: source.openingPnl ?? null,
+    closings: asArray(source.closings),
     settings: {
       salarySharePct: source.settings?.salarySharePct ?? 25,
       categories: [...categories],
@@ -116,7 +118,8 @@ export function bookIsEmpty(state: State) {
     state.layaways.length === 0 &&
     state.loans.length === 0 &&
     state.movements.length === 0 &&
-    state.suppliers.length === 0
+    state.suppliers.length === 0 &&
+    state.closings.length === 0
   )
 }
 

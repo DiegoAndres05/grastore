@@ -1,6 +1,6 @@
 import { isRetailSale } from './format'
 import { accountBalance } from './money'
-import type { State } from '../types'
+import type { ClosingLine, MonthClosing, State } from '../types'
 
 export type Range = { from: string; to: string }
 
@@ -114,6 +114,106 @@ export function profitAndLoss(state: State, range: Range) {
     units,
     margin: netSales > 0 ? profit / netSales : 0,
   }
+}
+
+const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+export type BalanceRow = {
+  key: string
+  label: string
+  period: string | null
+  from: string | null
+  to: string | null
+  equity: number | null
+  sales: number | null
+  profit: number | null
+  salary: number | null
+  units: number | null
+  margin: number | null
+  lines: ClosingLine[]
+  source: 'excel' | 'app' | 'vivo'
+  locked: boolean
+  closingId: string | null
+}
+
+function monthKey(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function monthOf(iso: string) {
+  const match = /^(\d{4})-(\d{2})/.exec(iso)
+  if (!match) return null
+  return `${match[1]}-${match[2]}`
+}
+
+function closingRow(closing: MonthClosing): BalanceRow {
+  return {
+    key: closing.id,
+    label: closing.label,
+    period: closing.period,
+    from: closing.from,
+    to: closing.to,
+    equity: closing.equity,
+    sales: closing.sales,
+    profit: closing.profit,
+    salary: closing.salary,
+    units: closing.units,
+    margin: closing.margin,
+    lines: closing.lines,
+    source: closing.source,
+    locked: closing.locked,
+    closingId: closing.id,
+  }
+}
+
+export function balanceHistory(state: State, now = new Date()): BalanceRow[] {
+  const saved = [...state.closings].sort((a, b) => (a.from ?? a.period ?? '').localeCompare(b.from ?? b.period ?? ''))
+  const lockedApp = new Set(saved.filter((closing) => closing.source === 'app' && closing.period).map((closing) => closing.period as string))
+  const months = new Set<string>()
+  const current = monthKey(now.getFullYear(), now.getMonth() + 1)
+  months.add(current)
+  for (const sale of state.sales) {
+    if (!isRetailSale(sale)) continue
+    const key = monthOf(sale.date)
+    if (key) months.add(key)
+  }
+  for (const expense of state.expenses) {
+    const key = monthOf(expense.date)
+    if (key) months.add(key)
+  }
+  for (const item of state.returns) {
+    const key = monthOf(item.date)
+    if (key) months.add(key)
+  }
+  const live: BalanceRow[] = []
+  for (const key of months) {
+    if (lockedApp.has(key)) continue
+    const [yearText, monthText] = key.split('-')
+    const year = Number(yearText)
+    const month = Number(monthText)
+    const close = monthlyClose(state, year, month)
+    const quiet = close.netSales === 0 && close.expenseTotal === 0 && close.units === 0 && key !== current
+    if (quiet) continue
+    const sheet = key === current ? balanceSheet(state) : null
+    live.push({
+      key: `vivo-${key}`,
+      label: `${MONTHS[month - 1]} ${year}`,
+      period: key,
+      from: close.from,
+      to: close.to,
+      equity: sheet ? sheet.equity : null,
+      sales: close.netSales,
+      profit: close.profit,
+      salary: close.salaryShare,
+      units: close.units,
+      margin: close.margin,
+      lines: [],
+      source: 'vivo',
+      locked: false,
+      closingId: null,
+    })
+  }
+  return [...saved.map(closingRow), ...live].sort((a, b) => (a.from ?? a.period ?? '9999').localeCompare(b.from ?? b.period ?? '9999') || a.label.localeCompare(b.label))
 }
 
 export function monthlyClose(state: State, year: number, month: number) {

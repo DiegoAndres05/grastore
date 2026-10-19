@@ -12,6 +12,7 @@ export const PAGES = [
   'gastos',
   'pagar',
   'contabilidad',
+  'balance',
   'importar',
   'usuarios',
 ] as const
@@ -41,6 +42,7 @@ const PAGE_ANY: Record<PageId, string[]> = {
   gastos: ['expenses.read', 'expenses.write'],
   pagar: ['payables.read', 'payables.write'],
   contabilidad: ['reports.read'],
+  balance: ['reports.read'],
   importar: ['import.restore'],
   usuarios: ['users.manage'],
 }

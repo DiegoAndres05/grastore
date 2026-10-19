@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import * as XLSX from 'xlsx'
 import { describe, expect, it } from 'vitest'
 import { balanceSheet, profitAndLoss } from './accounting'
-import { defaultDecisions, importBook, parseWorkbook } from './importWorkbook'
+import { applyImportClosings, defaultDecisions, importBook, parseWorkbook } from './importWorkbook'
 
 function sheetBook() {
   const inventory = XLSX.utils.aoa_to_sheet([
@@ -106,6 +106,102 @@ describe('importador', () => {
     const report = profitAndLoss(state, { from: '2025-01-01', to: '2025-12-31' })
     expect(report.openingSales).toBe(67_890)
     expect(report.profit).toBe(12_335)
+  })
+})
+
+function balanceBlocks() {
+  const at = (row: (string | number | Date)[], col: number, value: string | number | Date) => {
+    while (row.length <= col) row.push('')
+    row[col] = value
+    return row
+  }
+  const rows: (string | number | Date)[][] = []
+  const line = (index: number) => {
+    rows[index] = rows[index] ?? []
+    return rows[index]
+  }
+  at(line(2), 9, 'OCASIONES')
+  at(line(2), 10, 'PATRIMONIO')
+  at(line(2), 11, 'FECHA')
+  at(line(2), 12, 'AUMENTO P')
+  at(line(2), 13, 'UNIDADES VENDIDAS')
+  at(line(3), 10, 100_000)
+  at(line(3), 11, new Date('2026-03-01T00:00:00Z'))
+  at(line(4), 10, 140_000)
+  at(line(4), 11, new Date('2026-03-31T00:00:00Z'))
+  at(line(5), 9, 40_000)
+  at(line(5), 10, 10_000)
+  at(line(5), 12, 40_000)
+  at(line(5), 13, 4)
+  at(line(5), 14, 8_000)
+  at(line(6), 9, 'VENTA NETA')
+  at(line(6), 10, 'SUELDO 25%')
+  at(line(6), 12, 'GANANCIA')
+  at(line(7), 9, 'BONO')
+  at(line(7), 12, '% GANANCIA')
+  at(line(8), 9, 1_500)
+  at(line(8), 12, 1)
+  at(line(0), 16, 'DESP DE PAG')
+  at(line(1), 16, -5_000)
+  at(line(2), 16, 'OCASIONES')
+  at(line(2), 17, 'PATRIMONIO')
+  at(line(2), 18, 'FECHA')
+  at(line(2), 19, 'AUMENTO P')
+  at(line(3), 17, 200_000)
+  at(line(3), 18, new Date('2026-04-02T00:00:00Z'))
+  at(line(4), 17, 250_000)
+  at(line(4), 18, new Date('2026-04-30T00:00:00Z'))
+  at(line(5), 16, 80_000)
+  at(line(5), 17, 5_000)
+  at(line(5), 19, 20_000)
+  at(line(5), 20, 2)
+  at(line(6), 16, 'VENTA NETA')
+  at(line(6), 17, 'SUELDO 25%')
+  at(line(6), 19, 'GANANCIA')
+  const balance = XLSX.utils.aoa_to_sheet(rows)
+  const book = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([[]]), 'Inv Actual')
+  XLSX.utils.book_append_sheet(book, balance, 'Balance')
+  return XLSX.write(book, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
+}
+
+describe('meses del balance', () => {
+  it('lee cada bloque y lo guarda sin tocar el resto del libro', () => {
+    const preview = parseWorkbook(balanceBlocks())
+    expect(preview.closings).toHaveLength(2)
+    const march = preview.closings[0]
+    expect(march.label).toBe('Marzo 2026')
+    expect(march.period).toBe('2026-03')
+    expect(march.openingEquity).toBe(100_000)
+    expect(march.equity).toBe(140_000)
+    expect(march.sales).toBe(40_000)
+    expect(march.profit).toBe(40_000)
+    expect(march.salary).toBe(10_000)
+    expect(march.units).toBe(4)
+    expect(march.margin).toBe(1)
+    expect(march.lines.some((line) => line.label === 'BONO' && line.amount === 1_500)).toBe(true)
+    expect(march.lines.some((line) => line.label === 'Ganancia por unidad' && line.amount === 8_000)).toBe(true)
+
+    const april = preview.closings[1]
+    expect(april.label).toBe('2–30 abr 2026')
+    expect(april.period).toBe('2026-04')
+    expect(april.equity).toBe(250_000)
+    expect(april.sales).toBe(80_000)
+    expect(april.profit).toBe(20_000)
+    expect(april.salary).toBe(5_000)
+    expect(april.lines.some((line) => line.label === 'Desp. de pag' && line.amount === -5_000)).toBe(true)
+
+    const state = importBook(preview, defaultDecisions(preview))
+    expect(state.closings).toHaveLength(2)
+    expect(state.closings.every((closing) => closing.source === 'excel' && closing.locked)).toBe(true)
+    state.products.push({
+      id: 'keep', sku: 'X', name: 'Prenda', category: 'Buzo', color: 'Negro', size: 'M',
+      cost: 1, price: 2, stock: 3, minStock: 0, active: true, reserved: 0, location: '', brand: '', design: '',
+    })
+    const again = applyImportClosings(state, [preview.closings[0]])
+    expect(again.products.map((product) => product.id)).toContain('keep')
+    expect(again.closings.filter((closing) => closing.source === 'excel')).toHaveLength(1)
+    expect(again.closings[0].label).toBe('Marzo 2026')
   })
 })
 

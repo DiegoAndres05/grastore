@@ -110,6 +110,8 @@ export const ACTION_PERMISSION = {
   loan: 'capital.write',
   payLoan: 'capital.write',
   setSalaryShare: 'reports.read',
+  closeMonth: 'reports.read',
+  importClosings: 'import.restore',
   replaceBook: 'import.restore',
   restoreBackup: 'import.restore',
   loadSample: 'import.restore',
@@ -170,5 +172,6 @@ export function redactState(state: State, access: Access): State {
     adjustments: allow('inventory.adjust') || seeReports || allow('products.write') ? state.adjustments : [],
     investments: seePurchases ? state.investments : [],
     openingPnl: seeReports ? state.openingPnl : null,
+    closings: seeReports ? state.closings : [],
   }
 }

@@ -7,6 +7,7 @@ import type {
   Expense,
   Investment,
   Layaway,
+  MonthClosing,
   Loan,
   LoanPayment,
   Payable,
@@ -16,6 +17,7 @@ import type {
   SaleReturn,
   State,
 } from '../types'
+import { balanceSheet, monthlyClose } from './accounting'
 import { money } from './format'
 import { accountBalance, accountForMethod, availableUnits, coerceWhen, moneyOf, stamp, uid, withMovement } from './money'
 import type { Result } from './logic'
@@ -926,6 +928,50 @@ export function applySettleInvestment(state: State, id: string): Result<{ state:
       },
     },
   }
+}
+
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+export function applyCloseMonth(
+  state: State,
+  input: { year: number; month: number; today?: string; actor?: Actor | null },
+): Result<{ state: State; closing: MonthClosing }> {
+  const year = Math.round(input.year)
+  const month = Math.round(input.month)
+  if (month < 1 || month > 12 || year < 2000) return fail('Ese mes no es válido')
+  const today = input.today ? new Date(`${input.today}T12:00:00.000-05:00`) : new Date()
+  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const period = `${year}-${String(month).padStart(2, '0')}`
+  if (period > currentKey) return fail('No se puede cerrar un mes que no ha llegado')
+  const close = monthlyClose(state, year, month)
+  const isCurrent = period === currentKey
+  const equity = isCurrent ? balanceSheet(state).equity : null
+  const closing: MonthClosing = {
+    id: uid(),
+    period,
+    label: `${MONTH_NAMES[month - 1]} ${year}`,
+    from: close.from,
+    to: close.to,
+    equity,
+    openingEquity: null,
+    sales: close.netSales,
+    profit: close.profit,
+    salary: close.salaryShare,
+    units: close.units,
+    margin: close.margin,
+    lines: [],
+    source: 'app',
+    locked: true,
+    note: isCurrent
+      ? 'Cierre guardado. El patrimonio es el del día en que se cerró el mes.'
+      : 'Cierre guardado con la ganancia de ese mes. El patrimonio no se anotó porque el mes ya pasó.',
+    ...stamp(input.actor),
+  }
+  const closings = [
+    closing,
+    ...state.closings.filter((item) => !(item.source === 'app' && item.period === period)),
+  ]
+  return { ok: true, data: { closing, state: { ...state, closings } } }
 }
 
 export function applySalaryShare(state: State, percent: number): Result<{ state: State }> {

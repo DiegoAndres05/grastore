@@ -9,6 +9,7 @@ import {
   applyAdjustment,
   applyCancelLayaway,
   applyCapital,
+  applyCloseMonth,
   applyCompleteLayaway,
   applyExpense,
   applyInvestment,
@@ -34,6 +35,7 @@ import {
   type TransferInput,
 } from './lib/books'
 import { fullAccess, type Access } from './lib/access'
+import { applyImportClosings, type ClosingDraft } from './lib/importWorkbook'
 import { fetchSnapshot, postBook, supabase } from './lib/cloud'
 import {
   applyCheckout,
@@ -98,6 +100,8 @@ type StoreApi = {
   renameCategory: (from: string, to: string) => Promise<Result<true>>
   addColor: (name: string) => Promise<Result<true>>
   setSalaryShare: (percent: number) => Promise<Result<true>>
+  closeMonth: (year: number, month: number) => Promise<Result<true>>
+  importClosings: (closings: ClosingDraft[]) => Promise<Result<true>>
   replaceBook: (next: State) => Promise<Result<true>>
   loadSample: () => Promise<Result<true>>
   restoreBackup: (raw: string) => Promise<Result<true>>
@@ -335,6 +339,17 @@ export function StoreProvider({
     },
     setSalaryShare(percent) {
       return perform('setSalaryShare', { percent }, () => applySalaryShare(stateRef.current, percent), () => true)
+    },
+    closeMonth(year, month) {
+      return perform('closeMonth', { year, month }, () => applyCloseMonth(stateRef.current, { year, month, actor: actorNow() }), () => true)
+    },
+    async importClosings(closings) {
+      const result = await perform('importClosings', { closings }, () => {
+        if (!closings.length) return { ok: false as const, error: 'Esa hoja Balance no tiene meses para importar' }
+        return { ok: true as const, data: { state: applyImportClosings(stateRef.current, closings) } }
+      }, () => true as const)
+      if (result.ok) toast('Meses del Balance importados')
+      return result
     },
     async replaceBook(next) {
       const result = await perform('replaceBook', next, () => ({ ok: true, data: { state: next } }), () => true as const)

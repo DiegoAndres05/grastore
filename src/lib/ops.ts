@@ -2,6 +2,7 @@ import { createSeed } from '../data/seed'
 import type { Actor, State } from '../types'
 import { permissionFor, type BookAction } from './access'
 import { bookIsEmpty, emptyState, hydrate, parseBackup } from './book'
+import { applyImportClosings } from './importWorkbook'
 import {
   applyAccountActive,
   applyAddCategory,
@@ -9,6 +10,7 @@ import {
   applyAdjustment,
   applyCancelLayaway,
   applyCapital,
+  applyCloseMonth,
   applyCompleteLayaway,
   applyExpense,
   applyInvestment,
@@ -119,6 +121,13 @@ export function runAction(state: State, action: string, input: unknown, actor: A
       return map(applyAddColor(state, String((body as { name: string }).name)), () => true)
     case 'setSalaryShare':
       return map(applySalaryShare(state, Number((body as { percent: number }).percent)), () => true)
+    case 'closeMonth':
+      return map(applyCloseMonth(state, { ...(body as { year: number; month: number; today?: string }), actor }), (data) => data.closing)
+    case 'importClosings': {
+      const drafts = (body as { closings?: Parameters<typeof applyImportClosings>[1] }).closings ?? []
+      if (!drafts.length) return { ok: false, error: 'Esa hoja Balance no tiene meses para importar' }
+      return { ok: true, data: { state: applyImportClosings(state, drafts), data: true } }
+    }
     case 'replaceBook':
       return { ok: true, data: { state: hydrate(body), data: true } }
     case 'restoreBackup':
