@@ -339,7 +339,7 @@ export function Pos() {
           )}
         </section>
 
-        <aside className="sticky top-6 hidden min-w-0 rounded-3xl border border-line bg-ticket p-5 lg:block">{ticket()}</aside>
+        <aside className="sticky top-6 hidden max-h-[calc(100dvh-3rem)] [scrollbar-width:thin] min-w-0 overflow-y-auto overscroll-contain rounded-3xl border border-line bg-ticket p-5 lg:block">{ticket()}</aside>
       </div>
 
       <button
