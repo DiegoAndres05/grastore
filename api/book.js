@@ -23541,7 +23541,21 @@ function applyVoidSale(state, input) {
 		} : customer) : state.customers
 	};
 	const accountId = sale.accountId || accountForMethod(state, sale.method)?.id || null;
-	if (cashIn > 0 && accountId) next = withMovement(next, {
+	if (sale.payments && sale.payments.length > 0) for (const part of sale.payments) {
+		if (!part.accountId || part.amount <= 0) continue;
+		next = withMovement(next, {
+			date: when,
+			accountId: part.accountId,
+			kind: "void",
+			direction: "out",
+			amount: part.amount,
+			counterparty: sale.customerName,
+			note: `Anulación ${sale.number}`,
+			refId: sale.id,
+			actor: input.actor
+		});
+	}
+	else if (cashIn > 0 && accountId) next = withMovement(next, {
 		date: when,
 		accountId,
 		kind: "void",
@@ -23579,11 +23593,8 @@ function applyUpdateSale(state, saleId, patch) {
 	if (total <= 0) return fail$1("El total debe ser mayor a cero");
 	if (total < sale.paid) return fail$1("El nuevo total queda por debajo de lo ya pagado. Registra una devolución.");
 	const delta = total - sale.total;
+	if ((sale.payments?.length ?? 0) > 1 && delta !== 0) return fail$1("Esta venta quedó en varias cuentas. El total no se mueve desde aquí.");
 	const balance = sale.method === "credito" ? sale.balance + delta : sale.balance;
-	if (sale.customerId && sale.method === "credito" && delta > 0) {
-		const customer = state.customers.find((item) => item.id === sale.customerId);
-		if (customer && customer.balance + delta > customer.creditLimit) return fail$1(`El saldo supera el cupo de ${customer.name}`);
-	}
 	const updated = {
 		...sale,
 		lines,
@@ -23932,21 +23943,41 @@ function applyCheckout(state, input) {
 	let paid = total;
 	let balance = 0;
 	let tendered = null;
-	if (input.method === "credito") {
-		if (!customer) return fail("El crédito de tienda necesita un cliente");
-		paid = moneyOf(input.paid);
-		if (paid > total) return fail("El abono no puede superar el total");
-		balance = total - paid;
-		if (customer.balance + balance > customer.creditLimit) return fail(`El saldo supera el cupo de ${customer.name}`);
-	}
-	if (input.method === "efectivo") {
-		tendered = moneyOf(input.tendered);
-		if (tendered < total) return fail("El efectivo recibido no cubre el total");
+	let method = input.method;
+	let payments;
+	let account = null;
+	let cashIn = 0;
+	const deposits = [];
+	if (input.payments) {
+		const settled = settlePayments(state, input.payments, total, customer);
+		if (!settled.ok) return settled;
+		paid = settled.data.paid;
+		balance = settled.data.balance;
+		method = settled.data.method;
+		payments = settled.data.payments;
+		cashIn = settled.data.cashIn;
+		account = settled.data.account;
+		deposits.push(...settled.data.deposits);
+	} else {
+		if (input.method === "credito") {
+			if (!customer) return fail("El crédito de tienda necesita un cliente");
+			paid = moneyOf(input.paid);
+			if (paid > total) return fail("El abono no puede superar el total");
+			balance = total - paid;
+		}
+		if (input.method === "efectivo") {
+			tendered = moneyOf(input.tendered);
+			if (tendered < total) return fail("El efectivo recibido no cubre el total");
+		}
+		account = input.accountId ? state.accounts.find((item) => item.id === input.accountId) ?? null : input.method === "credito" ? paid > 0 ? accountForMethod(state, "efectivo") : null : accountForMethod(state, input.method);
+		cashIn = input.method === "credito" ? paid : input.method === "tarjeta" ? 0 : total;
+		if (cashIn > 0 && !account) return fail("Elige la cuenta donde entra el dinero");
+		if (account && cashIn > 0) deposits.push({
+			accountId: account.id,
+			amount: cashIn
+		});
 	}
 	const when = coerceWhen(input.date);
-	const account = input.accountId ? state.accounts.find((item) => item.id === input.accountId) ?? null : input.method === "credito" ? paid > 0 ? accountForMethod(state, "efectivo") : null : accountForMethod(state, input.method);
-	const cashIn = input.method === "credito" ? paid : input.method === "tarjeta" ? 0 : total;
-	if (cashIn > 0 && !account) return fail("Elige la cuenta donde entra el dinero");
 	const sale = {
 		id: uid(),
 		number: `V-${state.seq.sale}`,
@@ -23956,14 +23987,15 @@ function applyCheckout(state, input) {
 		lines: saleLines,
 		discount,
 		total,
-		method: input.method,
+		method,
 		paid,
 		balance,
 		tendered,
 		note: input.note.trim(),
 		accountId: account?.id ?? null,
 		cashIn,
-		dueDate: input.method === "credito" ? input.dueDate || null : null,
+		payments,
+		dueDate: input.method === "credito" || balance > 0 ? input.dueDate || null : null,
 		kind: "retail",
 		voided: false,
 		affectsStock: true,
@@ -23989,12 +24021,12 @@ function applyCheckout(state, input) {
 			balance: item.balance + balance
 		} : item)
 	};
-	if (account && cashIn > 0) next = withMovement(next, {
+	for (const deposit of deposits) next = withMovement(next, {
 		date: when,
-		accountId: account.id,
+		accountId: deposit.accountId,
 		kind: "sale",
 		direction: "in",
-		amount: cashIn,
+		amount: deposit.amount,
 		counterparty: sale.customerName,
 		note: sale.number,
 		refId: sale.id,
@@ -24005,6 +24037,56 @@ function applyCheckout(state, input) {
 		data: {
 			sale,
 			state: next
+		}
+	};
+}
+var SPLIT_METHODS = [
+	"efectivo",
+	"nequi",
+	"bancolombia",
+	"tarjeta",
+	"transferencia"
+];
+function settlePayments(state, parts, total, customer) {
+	const merged = /* @__PURE__ */ new Map();
+	for (const part of parts) {
+		if (part.method === "credito") return fail("El crédito es el saldo que queda, no un medio de entrada");
+		if (!SPLIT_METHODS.includes(part.method)) return fail("Ese medio de pago no existe");
+		const amount = moneyOf(part.amount);
+		if (amount <= 0) continue;
+		merged.set(part.method, (merged.get(part.method) ?? 0) + amount);
+	}
+	if (merged.size === 0) return fail("Escribe cuánto entra por cada medio");
+	const payments = [];
+	const deposits = [];
+	for (const [method, amount] of merged) {
+		const found = accountForMethod(state, method);
+		if (method !== "tarjeta" && !found) return fail("Elige la cuenta donde entra el dinero");
+		payments.push({
+			method,
+			amount,
+			accountId: found?.id ?? null
+		});
+		if (found) deposits.push({
+			accountId: found.id,
+			amount
+		});
+	}
+	const paid = payments.reduce((sum, part) => sum + part.amount, 0);
+	if (paid > total) return fail("El pago supera el total");
+	const balance = total - paid;
+	if (balance > 0 && !customer) return fail("El saldo a crédito necesita un cliente");
+	const lead = [...payments].sort((a, b) => b.amount - a.amount)[0];
+	return {
+		ok: true,
+		data: {
+			paid,
+			balance,
+			method: balance > 0 ? "credito" : lead.method,
+			payments,
+			cashIn: paid,
+			account: payments.find((part) => part.accountId)?.accountId ? { id: payments.find((part) => part.accountId).accountId } : null,
+			deposits
 		}
 	};
 }
@@ -24264,7 +24346,6 @@ function applyProductActive(state, id, active) {
 function applyCustomer(state, input, id) {
 	const name = input.name.trim();
 	const email = input.email.trim();
-	const creditLimit = moneyOf(input.creditLimit);
 	if (!name) return fail("Escribe el nombre");
 	if (email && !email.includes("@")) return fail("El correo no parece válido");
 	if (!id) {
@@ -24274,7 +24355,7 @@ function applyCustomer(state, input, id) {
 			phone: input.phone.trim(),
 			email,
 			city: input.city.trim(),
-			creditLimit,
+			creditLimit: moneyOf(input.creditLimit ?? 0),
 			balance: 0,
 			since: (/* @__PURE__ */ new Date()).toISOString(),
 			...stamp(input.actor)
@@ -24292,14 +24373,12 @@ function applyCustomer(state, input, id) {
 	}
 	const current = state.customers.find((customer) => customer.id === id);
 	if (!current) return fail("Cliente no encontrado");
-	if (creditLimit < current.balance) return fail("El cupo no puede ser menor que el saldo");
 	const customer = {
 		...current,
 		name,
 		phone: input.phone.trim(),
 		email,
-		city: input.city.trim(),
-		creditLimit
+		city: input.city.trim()
 	};
 	return {
 		ok: true,

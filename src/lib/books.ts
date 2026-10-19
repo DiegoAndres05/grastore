@@ -652,10 +652,6 @@ export function applyUpdateSale(state: State, saleId: string, patch: SalePatch):
   const delta = total - sale.total
   if ((sale.payments?.length ?? 0) > 1 && delta !== 0) return fail('Esta venta quedó en varias cuentas. El total no se mueve desde aquí.')
   const balance = sale.method === 'credito' ? sale.balance + delta : sale.balance
-  if (sale.customerId && sale.method === 'credito' && delta > 0) {
-    const customer = state.customers.find((item) => item.id === sale.customerId)
-    if (customer && customer.balance + delta > customer.creditLimit) return fail(`El saldo supera el cupo de ${customer.name}`)
-  }
   const updated: Sale = {
     ...sale,
     lines,

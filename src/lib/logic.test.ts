@@ -32,7 +32,7 @@ function book(): State {
   })
   if (!product.ok) throw new Error(product.error)
   state = product.data.state
-  const customer = applyCustomer(state, { name: 'Ana', phone: '', email: '', city: '', creditLimit: 200_000 })
+  const customer = applyCustomer(state, { name: 'Ana', phone: '', email: '', city: '' })
   if (!customer.ok) throw new Error(customer.error)
   state = customer.data.state
   return state
@@ -71,7 +71,37 @@ describe('ventas', () => {
     expect(accountBalance(below.data.state, 'acct-efectivo')).toBe(70_000)
   })
 
-  it('respeta el cupo y aplica abonos a la venta elegida', () => {
+  it('suma cada venta a crédito a la deuda del cliente sin tope', () => {
+    const state = book()
+    const product = state.products[0]
+    const customer = state.customers[0]
+    const first = applyCheckout(state, {
+      lines: [{ productId: product.id, qty: 3 }],
+      customerId: customer.id,
+      discount: 0,
+      method: 'credito',
+      paid: 0,
+      tendered: 0,
+      note: '',
+    })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const second = applyCheckout(first.data.state, {
+      lines: [{ productId: product.id, qty: 1 }],
+      customerId: customer.id,
+      discount: 0,
+      method: 'credito',
+      paid: 0,
+      tendered: 0,
+      note: '',
+    })
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.data.state.customers[0].balance).toBe(360_000)
+    expect(second.data.state.sales).toHaveLength(2)
+  })
+
+  it('aplica abonos a la venta elegida', () => {
     const state = book()
     const product = state.products[0]
     const customer = state.customers[0]

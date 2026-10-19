@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { CollectModal } from '../components/CollectModal'
-import { Button, Empty, Field, FormError, Modal, MoneyInput, PageHeader, SearchBox, inputClass, tdClass, thClass } from '../components/ui'
+import { Button, Empty, Field, FormError, Modal, PageHeader, SearchBox, inputClass, tdClass, thClass } from '../components/ui'
 import { norm } from '../lib/catalog'
 import { money } from '../lib/format'
 import type { CustomerInput } from '../lib/logic'
+import { reminderLink } from '../lib/whatsapp'
 import { useStore } from '../store'
 import type { Customer } from '../types'
 
-const blank: CustomerInput = { name: '', phone: '', email: '', city: '', creditLimit: 500_000 }
+const blank: CustomerInput = { name: '', phone: '', email: '', city: '' }
 
 export function Customers() {
   const { state, saveCustomer, removeCustomer, toast } = useStore()
@@ -18,6 +19,13 @@ export function Customers() {
   const [error, setError] = useState('')
   const [collectId, setCollectId] = useState<string | undefined>()
   const [collectOpen, setCollectOpen] = useState(false)
+  const [remindOpen, setRemindOpen] = useState(false)
+  const [reminded, setReminded] = useState<string[]>([])
+
+  const debtors = useMemo(
+    () => state.customers.filter((customer) => customer.balance > 0).sort((a, b) => b.balance - a.balance),
+    [state.customers],
+  )
 
   const rows = useMemo(() => {
     const needle = norm(query)
@@ -40,7 +48,6 @@ export function Customers() {
       phone: customer.phone,
       email: customer.email,
       city: customer.city,
-      creditLimit: customer.creditLimit,
     })
     setError('')
     setOpen(true)
@@ -61,8 +68,13 @@ export function Customers() {
       <PageHeader
         kicker="Casa"
         title="Clientes"
-        text="Cada cliente tiene un cupo. El saldo sube con el crédito de tienda y baja con los abonos."
-        action={<Button onClick={startCreate}>Nuevo cliente</Button>}
+        text="Lo que se fía en el ticket se suma solo a la deuda del cliente y baja con cada abono."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" onClick={() => { setReminded([]); setRemindOpen(true) }}>Recordar por WhatsApp</Button>
+            <Button onClick={startCreate}>Nuevo cliente</Button>
+          </div>
+        }
       />
       <div className="mb-5 max-w-sm">
         <SearchBox value={query} onChange={setQuery} placeholder="Nombre, ciudad o teléfono" />
@@ -73,7 +85,6 @@ export function Customers() {
         <>
         <ul className="space-y-3 md:hidden">
           {rows.map((customer) => {
-            const used = customer.creditLimit > 0 ? Math.min(100, (customer.balance / customer.creditLimit) * 100) : 0
             return (
               <li key={customer.id} className="rounded-2xl border border-line bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -83,10 +94,6 @@ export function Customers() {
                   </div>
                   <p className={`shrink-0 text-sm tabular-nums ${customer.balance > 0 ? 'text-warn' : ''}`}>{money(customer.balance)}</p>
                 </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-paper-deep">
-                  <div className="h-1 rounded-full bg-brass" style={{ width: `${used}%` }} />
-                </div>
-                <p className="mt-2 text-xs text-muted">Cupo {money(customer.creditLimit)}</p>
                 <div className="mt-3 flex flex-wrap gap-3">
                   {customer.balance > 0 ? (
                     <button type="button" className="text-sm text-brass-deep" onClick={() => { setCollectId(customer.id); setCollectOpen(true) }}>
@@ -117,14 +124,12 @@ export function Customers() {
               <tr>
                 <th className={thClass}>Cliente</th>
                 <th className={thClass}>Contacto</th>
-                <th className={thClass}>Cupo</th>
-                <th className={`${thClass} text-right`}>Saldo</th>
+                <th className={`${thClass} text-right`}>Debe</th>
                 <th className={thClass} />
               </tr>
             </thead>
             <tbody>
               {rows.map((customer) => {
-                const used = customer.creditLimit > 0 ? Math.min(100, (customer.balance / customer.creditLimit) * 100) : 0
                 return (
                   <tr key={customer.id}>
                     <td className={tdClass}>
@@ -134,12 +139,6 @@ export function Customers() {
                     <td className={tdClass}>
                       <p>{customer.phone || '—'}</p>
                       <p className="text-xs text-muted">{customer.email || 'Sin correo'}</p>
-                    </td>
-                    <td className={tdClass}>
-                      <p className="tabular-nums">{money(customer.creditLimit)}</p>
-                      <div className="mt-2 h-1 w-28 rounded-full bg-paper-deep">
-                        <div className="h-1 rounded-full bg-brass" style={{ width: `${used}%` }} />
-                      </div>
                     </td>
                     <td className={`${tdClass} text-right tabular-nums ${customer.balance > 0 ? 'text-warn' : ''}`}>{money(customer.balance)}</td>
                     <td className={`${tdClass} text-right`}>
@@ -185,17 +184,54 @@ export function Customers() {
           <Field label="Correo">
             <input className={inputClass} value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
           </Field>
-          <div className="sm:col-span-2">
-            <Field label="Cupo de crédito">
-              <MoneyInput value={form.creditLimit} onChange={(creditLimit) => setForm({ ...form, creditLimit })} />
-            </Field>
-          </div>
         </div>
         <FormError>{error}</FormError>
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
           <Button onClick={save}>Guardar</Button>
         </div>
+      </Modal>
+      <Modal open={remindOpen} kicker="Clientes" title="Recordar por WhatsApp" onClose={() => setRemindOpen(false)}>
+        {debtors.length === 0 ? (
+          <p className="text-sm text-muted">Nadie debe en este momento.</p>
+        ) : (
+          <>
+            <p className="text-sm text-muted">
+              {debtors.length} {debtors.length === 1 ? 'cliente debe' : 'clientes deben'} {money(debtors.reduce((sum, customer) => sum + customer.balance, 0))}. Cada botón abre WhatsApp con el mensaje y su deuda.
+            </p>
+            <ul className="mt-4 divide-y divide-line">
+              {debtors.map((customer) => {
+                const link = reminderLink(customer.phone, customer.balance)
+                const sent = reminded.includes(customer.id)
+                return (
+                  <li key={customer.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate">{customer.name}</p>
+                      <p className="text-xs text-muted tabular-nums">
+                        {money(customer.balance)} · {customer.phone || 'Sin teléfono'}
+                      </p>
+                    </div>
+                    {link ? (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => setReminded((list) => (list.includes(customer.id) ? list : [...list, customer.id]))}
+                        className={`shrink-0 rounded-full px-4 py-2 text-sm ${sent ? 'border border-line text-muted' : 'bg-brass font-semibold text-espresso'}`}
+                      >
+                        {sent ? 'Enviado' : 'Enviar'}
+                      </a>
+                    ) : (
+                      <button type="button" className="shrink-0 text-sm text-brass-deep" onClick={() => { setRemindOpen(false); startEdit(customer) }}>
+                        Poner teléfono
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
       </Modal>
       <CollectModal open={collectOpen} customerId={collectId} onClose={() => setCollectOpen(false)} />
     </div>

@@ -73,7 +73,7 @@ export type CustomerInput = {
   phone: string
   email: string
   city: string
-  creditLimit: number
+  creditLimit?: number
   actor?: Actor | null
 }
 
@@ -159,9 +159,6 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
       paid = moneyOf(input.paid)
       if (paid > total) return fail('El abono no puede superar el total')
       balance = total - paid
-      if (customer.balance + balance > customer.creditLimit) {
-        return fail(`El saldo supera el cupo de ${customer.name}`)
-      }
     }
 
     if (input.method === 'efectivo') {
@@ -275,10 +272,7 @@ function settlePayments(
   const paid = payments.reduce((sum, part) => sum + part.amount, 0)
   if (paid > total) return fail('El pago supera el total')
   const balance = total - paid
-  if (balance > 0) {
-    if (!customer) return fail('El saldo a crédito necesita un cliente')
-    if (customer.balance + balance > customer.creditLimit) return fail(`El saldo supera el cupo de ${customer.name}`)
-  }
+  if (balance > 0 && !customer) return fail('El saldo a crédito necesita un cliente')
 
   const lead = [...payments].sort((a, b) => b.amount - a.amount)[0]
   return {
@@ -537,7 +531,6 @@ export function applyCustomer(
 ): Result<{ state: State; customer: Customer }> {
   const name = input.name.trim()
   const email = input.email.trim()
-  const creditLimit = moneyOf(input.creditLimit)
   if (!name) return fail('Escribe el nombre')
   if (email && !email.includes('@')) return fail('El correo no parece válido')
 
@@ -548,7 +541,7 @@ export function applyCustomer(
       phone: input.phone.trim(),
       email,
       city: input.city.trim(),
-      creditLimit,
+      creditLimit: moneyOf(input.creditLimit ?? 0),
       balance: 0,
       since: new Date().toISOString(),
       ...stamp(input.actor),
@@ -558,14 +551,12 @@ export function applyCustomer(
 
   const current = state.customers.find((customer) => customer.id === id)
   if (!current) return fail('Cliente no encontrado')
-  if (creditLimit < current.balance) return fail('El cupo no puede ser menor que el saldo')
   const customer: Customer = {
     ...current,
     name,
     phone: input.phone.trim(),
     email,
     city: input.city.trim(),
-    creditLimit,
   }
   return {
     ok: true,

@@ -30,7 +30,7 @@ export function Receivables() {
       <PageHeader
         kicker="Cuentas por cobrar"
         title="Cartera"
-        text="El crédito de tienda queda amarrado al cupo del cliente. Los abonos se aplican primero a la venta que elijas."
+        text="Lo que se fía en el ticket queda en la deuda del cliente. Los abonos se aplican primero a la venta que elijas."
         action={<Button onClick={() => { setCustomerId(undefined); setSaleId(undefined); setOpen(true) }}>Registrar abono</Button>}
       />
       <section className="mb-8 grid border-y border-line sm:grid-cols-3">

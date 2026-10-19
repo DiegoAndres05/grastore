@@ -67,7 +67,7 @@ export function Pos() {
   const total = subtotal - safeDiscount
   const customer = state.customers.find((item) => item.id === customerId)
   const creditDue = method === 'credito' ? Math.max(0, total - Math.min(paid, total)) : 0
-  const room = customer ? customer.creditLimit - customer.balance : 0
+  const owed = customer ? customer.balance : 0
   const change = !split && method === 'efectivo' ? Math.max(0, tendered - total) : 0
   const received = splitMethods.reduce((sum, item) => sum + (parts[item] || 0), 0)
   const splitGap = Math.max(0, total - received)
@@ -221,7 +221,7 @@ export function Pos() {
       setPaid={setPaid}
       creditDue={creditDue}
       customer={customer}
-      room={room}
+      owed={owed}
       note={note}
       setNote={setNote}
       total={total}
@@ -416,7 +416,7 @@ function TicketBody({
   setPaid,
   creditDue,
   customer,
-  room,
+  owed,
   note,
   setNote,
   total,
@@ -453,7 +453,7 @@ function TicketBody({
   setPaid: (value: number) => void
   creditDue: number
   customer: Customer | undefined
-  room: number
+  owed: number
   note: string
   setNote: (value: string) => void
   total: number
@@ -553,7 +553,7 @@ function TicketBody({
           {splitGap > 0 ? (
             <>
               <p className="text-xs text-muted">
-                El saldo queda a crédito{customer ? ` · cupo libre ${money(Math.max(0, room))}` : ''}. Elige el cliente.
+                El saldo queda a crédito{customer && owed > 0 ? ` · ya debe ${money(owed)}` : ''}. Elige el cliente.
               </p>
               <label className="block text-[11px] tracking-[0.16em] text-muted uppercase">Corte</label>
               <select className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={dueDate} onChange={(event) => setDueDate(event.target.value)}>
@@ -602,7 +602,7 @@ function TicketBody({
           />
           <p className="mt-2 text-xs text-muted">
             Queda a crédito {money(creditDue)}
-            {customer ? ` · cupo libre ${money(Math.max(0, room))}` : ''}
+            {customer && owed > 0 ? ` · ya debe ${money(owed)}` : ''}
           </p>
           <label className="mt-3 block text-[11px] tracking-[0.16em] text-muted uppercase">Corte</label>
           <select className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={dueDate} onChange={(event) => setDueDate(event.target.value)}>

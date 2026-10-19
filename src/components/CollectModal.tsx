@@ -74,7 +74,7 @@ export function CollectModal({
             ))}
           </select>
         </Field>
-        <Field label="Valor" hint={customer ? `Saldo ${money(customer.balance)} · cupo ${money(customer.creditLimit)}` : undefined}>
+        <Field label="Valor" hint={customer ? `Debe ${money(customer.balance)}` : undefined}>
           <MoneyInput value={amount} onChange={setAmount} />
         </Field>
         <Field label="Forma de pago">
