@@ -3,6 +3,7 @@ import { Button, Field, PageHeader, inputClass } from '../components/ui'
 import { balanceSheet, dailyReport, monthlyClose, profitAndLoss } from '../lib/accounting'
 import { inventoryRows, ledgerRowsExport, payableRows, pnlRows, receivableRows, salesRows, saveCsv, saveXlsx } from '../lib/exportSheet'
 import { money, percent, todayInput } from '../lib/format'
+import { go } from '../lib/nav'
 import { useStore } from '../store'
 
 export function Accounting() {
@@ -29,7 +30,7 @@ export function Accounting() {
       <PageHeader
         kicker="Balance LAGRASITASTORECTG"
         title="Contabilidad"
-        text="El patrimonio es caja + cartera + inventario − por pagar − anticipos de apartados. Un plan separe nuevo no sube el patrimonio: el abono queda como anticipo y la prenda sigue en inventario a costo hasta la entrega."
+        text="El patrimonio es caja + cartera + inventario − por pagar − anticipos de apartados. Los meses del Excel, con ganancia y sueldo, están en Balance."
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -160,6 +161,7 @@ export function Accounting() {
         </div>
       </section>
       <section className="mt-6 flex flex-wrap gap-2">
+        <Button variant="ghost" onClick={() => go('balance')}>Ver Balance</Button>
         <Button variant="ghost" onClick={() => saveXlsx('inventario.xlsx', [{ name: 'Inventario', rows: inventoryRows(state) }])}>Inventario xlsx</Button>
         <Button variant="ghost" onClick={() => saveCsv('inventario.csv', inventoryRows(state))}>Inventario csv</Button>
         <Button variant="ghost" onClick={() => saveXlsx('ventas.xlsx', [{ name: 'Ventas', rows: salesRows(state) }])}>Ventas</Button>

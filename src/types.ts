@@ -318,6 +318,32 @@ export type OpeningPnl = {
   note: string
 }
 
+export type ClosingLine = {
+  label: string
+  amount: number
+  kind?: 'money' | 'ratio' | 'count'
+}
+
+/** A saved month, either copied from a Balance-sheet block or locked in the app. */
+export type MonthClosing = {
+  id: string
+  period: string | null
+  label: string
+  from: string | null
+  to: string | null
+  equity: number | null
+  openingEquity: number | null
+  sales: number | null
+  profit: number | null
+  salary: number | null
+  units: number | null
+  margin: number | null
+  lines: ClosingLine[]
+  source: 'excel' | 'app'
+  locked: boolean
+  note: string
+}
+
 export type Settings = {
   salarySharePct: number
   categories: string[]
@@ -349,6 +375,7 @@ export type State = {
   adjustments: Adjustment[]
   investments: Investment[]
   openingPnl: OpeningPnl | null
+  closings: MonthClosing[]
   settings: Settings
   seq: { sale: number; purchase: number; layaway: number; expense: number }
   meta: BookMeta

@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import { COLORS, CATEGORIES, norm } from './catalog'
 import { emptyState } from './book'
 import { uid } from './money'
-import type { Actor, PayableKind, Product, State } from '../types'
+import type { Actor, ClosingLine, MonthClosing, PayableKind, Product, State } from '../types'
 
 export type ProductDraft = {
   key: string
@@ -38,6 +38,21 @@ export type PayableDraft = { row: number; creditor: string; amount: number; kind
 export type InvestmentDraft = { row: number; supplier: string; amount: number; location: string; label: string }
 export type CashDraft = { name: string; balance: number }
 
+export type ClosingDraft = {
+  label: string
+  period: string | null
+  from: string | null
+  to: string | null
+  equity: number | null
+  openingEquity: number | null
+  sales: number | null
+  profit: number | null
+  salary: number | null
+  units: number | null
+  margin: number | null
+  lines: ClosingLine[]
+}
+
 export type WorkbookPreview = {
   products: ProductDraft[]
   buyers: string[]
@@ -50,6 +65,7 @@ export type WorkbookPreview = {
   cash: CashDraft[]
   openingPnl: { sales: number; cogs: number; profit: number } | null
   workbookEquity: number | null
+  closings: ClosingDraft[]
   warnings: string[]
 }
 
@@ -62,6 +78,7 @@ export type ImportDecisions = {
   includePayables: boolean
   includeCash: boolean
   includeOpeningPnl: boolean
+  includeClosings: boolean
   openingPnlDate: string
 }
 
@@ -79,8 +96,10 @@ function number(cell: XLSX.CellObject | undefined) {
   if (!cell || cell.v == null || cell.v === '') return null
   if (typeof cell.v === 'number' && Number.isFinite(cell.v)) return cell.v
   if (typeof cell.v === 'string') {
-    const cleaned = Number(cell.v.replace(/[^\d.-]/g, ''))
-    return Number.isFinite(cleaned) ? cleaned : null
+    const cleaned = cell.v.replace(/[^\d.-]/g, '')
+    if (!cleaned || cleaned === '-' || cleaned === '.') return null
+    const parsed = Number(cleaned)
+    return Number.isFinite(parsed) ? parsed : null
   }
   return null
 }
@@ -172,6 +191,144 @@ function findRow(ws: XLSX.WorkSheet, label: string, max = 20) {
     }
   }
   return null
+}
+
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+const MONTHS_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+
+function monthParts(iso: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!match) return null
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
+}
+
+function lastDay(year: number, month: number) {
+  return new Date(year, month, 0).getDate()
+}
+
+function periodLabel(dates: string[]) {
+  const sorted = [...dates].sort()
+  const from = sorted[0] ?? null
+  const to = sorted[sorted.length - 1] ?? null
+  if (!from || !to) return { label: 'Periodo sin fecha', period: null, from, to }
+  const start = monthParts(from)
+  const end = monthParts(to)
+  if (!start || !end) return { label: `${from} – ${to}`, period: null, from, to }
+  const period = `${end.year}-${String(end.month).padStart(2, '0')}`
+  const sameMonth = start.year === end.year && start.month === end.month
+  if (sameMonth && start.day === 1 && end.day === lastDay(end.year, end.month)) {
+    return { label: `${MONTHS[end.month - 1].replace(/^./, (letter) => letter.toUpperCase())} ${end.year}`, period, from, to }
+  }
+  if (sameMonth) return { label: `${start.day}–${end.day} ${MONTHS_SHORT[end.month - 1]} ${end.year}`, period, from, to }
+  const startText = `${start.day} ${MONTHS_SHORT[start.month - 1]}`
+  const endText = `${end.day} ${MONTHS_SHORT[end.month - 1]} ${end.year}`
+  return { label: `${startText} – ${endText}`, period, from, to }
+}
+
+function lineKind(label: string): ClosingLine['kind'] {
+  const key = norm(label)
+  if (key.includes('%') || key.includes('por unidad')) return 'ratio'
+  if (key.startsWith('unidad')) return 'count'
+  return 'money'
+}
+
+function roundLine(amount: number, kind: ClosingLine['kind']) {
+  if (kind === 'ratio') return Math.round(amount * 10000) / 10000
+  return Math.round(amount)
+}
+
+// Each monthly block is headed by PATRIMONIO, to the right of the general balance.
+// The summary numbers sit on the row above the labels VENTA NETA / SUELDO 25% / GANANCIA.
+export function parseBalanceClosings(ws: XLSX.WorkSheet | undefined): ClosingDraft[] {
+  if (!ws) return []
+  const anchors: { c: number; r: number }[] = []
+  for (let r = 0; r < 20; r += 1) {
+    for (let c = 8; c < 80; c += 1) {
+      if (norm(text(cell(ws, c, r))) !== 'patrimonio') continue
+      anchors.push({ c, r })
+    }
+  }
+  const closings: ClosingDraft[] = []
+  for (const anchor of anchors) {
+    const patrimonioCol = anchor.c
+    const startCol = patrimonioCol - 1
+    const dateCol = patrimonioCol + 1
+    const profitCol = patrimonioCol + 2
+    const unitsCol = patrimonioCol + 3
+    const eachCol = patrimonioCol + 4
+    let labelRow = -1
+    for (let r = anchor.r + 1; r < anchor.r + 50; r += 1) {
+      const label = norm(text(cell(ws, startCol, r)))
+      if (label.startsWith('venta')) {
+        labelRow = r
+        break
+      }
+    }
+    if (labelRow < 0) continue
+    const valueRow = labelRow - 1
+    const dates: string[] = []
+    const patrimonies: number[] = []
+    for (let r = anchor.r + 1; r < valueRow; r += 1) {
+      const when = text(cell(ws, dateCol, r))
+      if (/^\d{4}-\d{2}-\d{2}$/.test(when)) dates.push(when)
+      const equity = number(cell(ws, patrimonioCol, r))
+      if (equity != null) patrimonies.push(equity)
+    }
+    const sales = number(cell(ws, startCol, valueRow))
+    const salary = number(cell(ws, patrimonioCol, valueRow))
+    const profit = number(cell(ws, profitCol, valueRow))
+    const units = number(cell(ws, unitsCol, valueRow))
+    let margin: number | null = null
+    const lines: ClosingLine[] = []
+    for (let r = labelRow; r <= labelRow + 2; r += 1) {
+      for (let c = startCol; c <= eachCol; c += 1) {
+        const source = cell(ws, c, r)
+        const raw = text(source)
+        if (!raw || typeof source?.v === 'number') continue
+        const above = number(cell(ws, c, r - 1))
+        const below = number(cell(ws, c, r + 1))
+        const amount = above ?? below
+        if (amount == null) continue
+        const label = norm(raw).includes('%') && norm(raw).includes('ganancia') ? '% ganancia' : raw
+        const kind = lineKind(label)
+        if (norm(label).includes('%') && norm(label).includes('ganancia')) margin = amount
+        lines.push({ label, amount: roundLine(amount, kind), kind })
+      }
+    }
+    const each = number(cell(ws, eachCol, valueRow))
+    if (each != null && !lines.some((line) => norm(line.label).includes('unidad'))) {
+      lines.push({ label: 'Ganancia por unidad', amount: Math.round(each), kind: 'money' })
+    }
+    const despLabel = text(cell(ws, startCol, anchor.r - 2))
+    const desp = norm(despLabel).includes('desp') ? number(cell(ws, startCol, anchor.r - 1)) : null
+    if (desp != null) lines.push({ label: 'Desp. de pag', amount: Math.round(desp), kind: 'money' })
+    if (sales == null && profit == null && dates.length === 0) continue
+    const named = periodLabel(dates)
+    closings.push({
+      ...named,
+      equity: patrimonies.length ? Math.round(patrimonies[patrimonies.length - 1]) : null,
+      openingEquity: patrimonies.length ? Math.round(patrimonies[0]) : null,
+      sales: sales == null ? null : Math.round(sales),
+      profit: profit == null ? null : Math.round(profit),
+      salary: salary == null ? null : Math.round(salary),
+      units: units == null ? null : Math.round(units),
+      margin,
+      lines,
+    })
+  }
+  return closings
+}
+
+export function applyImportClosings(state: State, drafts: ClosingDraft[]): State {
+  const kept = state.closings.filter((closing) => closing.source !== 'excel')
+  const imported: MonthClosing[] = drafts.map((draft) => ({
+    ...draft,
+    id: uid(),
+    source: 'excel',
+    locked: true,
+    note: 'Importado de la hoja Balance',
+  }))
+  return { ...state, closings: [...imported, ...kept] }
 }
 
 function lastBalance(ws: XLSX.WorkSheet, column: number, start: number) {
@@ -374,6 +531,9 @@ export function parseWorkbook(data: ArrayBuffer | Uint8Array): WorkbookPreview {
     if (sales || cogs) openingPnl = { sales, cogs, profit: sales - cogs }
   }
 
+  const closings = parseBalanceClosings(balance)
+  if (closings.length) warnings.push(`La hoja Balance trae ${closings.length} ${closings.length === 1 ? 'mes' : 'meses'} de patrimonio, ganancia y sueldo.`)
+
   let workbookEquity: number | null = null
   if (balance) {
     for (let r = 0; r < 25; r += 1) {
@@ -414,6 +574,7 @@ export function parseWorkbook(data: ArrayBuffer | Uint8Array): WorkbookPreview {
     cash,
     openingPnl,
     workbookEquity,
+    closings,
     warnings,
   }
 }
@@ -436,6 +597,7 @@ export function defaultDecisions(preview: WorkbookPreview): ImportDecisions {
     includePayables: true,
     includeCash: true,
     includeOpeningPnl: true,
+    includeClosings: true,
     openingPnlDate: '2025-04-18',
   }
 }
@@ -647,6 +809,11 @@ export function importBook(preview: WorkbookPreview, decisions: ImportDecisions,
       asOf: decisions.openingPnlDate || '2025-04-18',
       note: 'Totales históricos de Perd y Gan. No tienen fecha por prenda.',
     }
+  }
+
+  if (decisions.includeClosings !== false && preview.closings.length) {
+    const next = applyImportClosings(state, preview.closings)
+    state.closings = next.closings
   }
 
   state.meta = { origin: 'import', importedAt: new Date().toISOString() }

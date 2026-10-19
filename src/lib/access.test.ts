@@ -64,6 +64,13 @@ describe('permisos', () => {
     expect(hidden.movements).toEqual([])
     expect(hidden.expenses).toEqual([])
     expect(hidden.openingPnl).toBeNull()
+    state.closings = [{
+      id: 'c', period: '2026-03', label: 'Marzo 2026', from: '2026-03-01', to: '2026-03-31',
+      equity: 10, openingEquity: 0, sales: 10, profit: 4, salary: 1, units: 1, margin: 0.4,
+      lines: [], source: 'excel', locked: true, note: '',
+    }]
+    expect(redactState(state, access('trabajador', DEFAULT_GRANTS.trabajador)).closings).toEqual([])
+    expect(redactState(state, access('dueno', DEFAULT_GRANTS.dueno)).closings).toHaveLength(1)
     const owner = redactState(state, access('dueno', DEFAULT_GRANTS.dueno))
     expect(owner.products[0].cost).toBe(40_000)
     expect(owner.movements).toHaveLength(1)

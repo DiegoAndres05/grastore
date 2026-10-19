@@ -21665,6 +21665,8 @@ var ACTION_PERMISSION = {
 	loan: "capital.write",
 	payLoan: "capital.write",
 	setSalaryShare: "reports.read",
+	closeMonth: "reports.read",
+	importClosings: "import.restore",
 	replaceBook: "import.restore",
 	restoreBackup: "import.restore",
 	loadSample: "import.restore",
@@ -21731,7 +21733,8 @@ function redactState(state, access) {
 		loanPayments: seeCapital ? state.loanPayments : [],
 		adjustments: allow("inventory.adjust") || seeReports || allow("products.write") ? state.adjustments : [],
 		investments: seePurchases ? state.investments : [],
-		openingPnl: seeReports ? state.openingPnl : null
+		openingPnl: seeReports ? state.openingPnl : null,
+		closings: seeReports ? state.closings : []
 	};
 }
 //#endregion
@@ -21858,6 +21861,7 @@ function emptyState() {
 		adjustments: [],
 		investments: [],
 		openingPnl: null,
+		closings: [],
 		settings: {
 			salarySharePct: 25,
 			categories: [...CATEGORIES],
@@ -21927,6 +21931,7 @@ function hydrate(raw, origin) {
 		adjustments: asArray(source.adjustments),
 		investments: asArray(source.investments),
 		openingPnl: source.openingPnl ?? null,
+		closings: asArray(source.closings),
 		settings: {
 			salarySharePct: source.settings?.salarySharePct ?? 25,
 			categories: [...categories],
@@ -21943,7 +21948,7 @@ function hydrate(raw, origin) {
 	};
 }
 function bookIsEmpty(state) {
-	return state.products.length === 0 && state.customers.length === 0 && state.sales.length === 0 && state.purchases.length === 0 && state.expenses.length === 0 && state.payables.length === 0 && state.investments.length === 0 && state.layaways.length === 0 && state.loans.length === 0 && state.movements.length === 0 && state.suppliers.length === 0;
+	return state.products.length === 0 && state.customers.length === 0 && state.sales.length === 0 && state.purchases.length === 0 && state.expenses.length === 0 && state.payables.length === 0 && state.investments.length === 0 && state.layaways.length === 0 && state.loans.length === 0 && state.movements.length === 0 && state.suppliers.length === 0 && state.closings.length === 0;
 }
 function parseBackup(raw) {
 	const parsed = JSON.parse(raw);
@@ -22906,6 +22911,22 @@ function createSeed() {
 	};
 }
 //#endregion
+//#region src/lib/importWorkbook.ts
+function applyImportClosings(state, drafts) {
+	const kept = state.closings.filter((closing) => closing.source !== "excel");
+	const imported = drafts.map((draft) => ({
+		...draft,
+		id: uid(),
+		source: "excel",
+		locked: true,
+		note: "Importado de la hoja Balance"
+	}));
+	return {
+		...state,
+		closings: [...imported, ...kept]
+	};
+}
+//#endregion
 //#region src/lib/format.ts
 function money(value) {
 	return new Intl.NumberFormat("es-CO", {
@@ -22913,6 +22934,128 @@ function money(value) {
 		currency: "COP",
 		maximumFractionDigits: 0
 	}).format(value);
+}
+function isRetailSale(sale) {
+	return !sale.voided && (sale.kind ?? "retail") === "retail";
+}
+//#endregion
+//#region src/lib/accounting.ts
+function dayStart(isoDate) {
+	return (/* @__PURE__ */ new Date(`${isoDate}T00:00:00.000-05:00`)).getTime();
+}
+function dayEnd(isoDate) {
+	return (/* @__PURE__ */ new Date(`${isoDate}T23:59:59.999-05:00`)).getTime();
+}
+function inRange(iso, range) {
+	const time = new Date(iso).getTime();
+	return time >= dayStart(range.from) && time <= dayEnd(range.to);
+}
+function inventoryValue(state) {
+	const garments = state.products.reduce((sum, product) => sum + product.cost * product.stock, 0);
+	const investments = state.investments.reduce((sum, item) => sum + Math.max(0, item.amount - item.allocated), 0);
+	return {
+		garments,
+		investments,
+		total: garments + investments
+	};
+}
+function reservesGarment(item) {
+	return item.lines.length > 0;
+}
+function receivables(state) {
+	const credit = state.customers.reduce((sum, customer) => sum + customer.balance, 0);
+	const layaways = state.layaways.filter((item) => item.status === "abierto" && !reservesGarment(item)).reduce((sum, item) => sum + item.balance, 0);
+	const loans = state.loans.reduce((sum, loan) => sum + loan.balance, 0);
+	return {
+		credit,
+		layaways,
+		loans,
+		total: credit + layaways + loans
+	};
+}
+function customerDeposits(state) {
+	return state.layaways.filter((item) => item.status === "abierto" && reservesGarment(item)).reduce((sum, item) => sum + item.deposited, 0);
+}
+function payablesTotal(state) {
+	return state.payables.reduce((sum, payable) => sum + payable.balance, 0);
+}
+function balanceSheet(state) {
+	const accounts = state.accounts.filter((account) => account.active).map((account) => ({
+		id: account.id,
+		name: account.name,
+		balance: accountBalance(state, account.id)
+	}));
+	const cash = accounts.reduce((sum, account) => sum + account.balance, 0);
+	const inventory = inventoryValue(state);
+	const receivable = receivables(state);
+	const payables = payablesTotal(state);
+	const deposits = customerDeposits(state);
+	const liabilities = payables + deposits;
+	const assets = cash + inventory.total + receivable.total;
+	return {
+		accounts,
+		cash,
+		inventory,
+		receivable,
+		assets,
+		payables,
+		deposits,
+		liabilities,
+		equity: assets - liabilities
+	};
+}
+function openingInRange(state, range) {
+	if (!state.openingPnl) return null;
+	return inRange(`${state.openingPnl.asOf}T12:00:00.000-05:00`, range) ? state.openingPnl : null;
+}
+function profitAndLoss(state, range) {
+	const sales = state.sales.filter((sale) => isRetailSale(sale) && inRange(sale.date, range));
+	const returns = state.returns.filter((item) => inRange(item.date, range));
+	const grossSales = sales.reduce((sum, sale) => sum + sale.total, 0);
+	const returnSales = returns.reduce((sum, item) => sum + item.amount, 0);
+	const cogs = sales.reduce((sum, sale) => sum + sale.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0);
+	const returnCost = returns.reduce((sum, item) => sum + item.lines.reduce((cost, line) => cost + line.cost * line.qty, 0), 0);
+	const opening = openingInRange(state, range);
+	const netSales = grossSales - returnSales + (opening?.sales ?? 0);
+	const netCogs = cogs - returnCost + (opening?.cogs ?? 0);
+	const expenses = state.expenses.filter((expense) => inRange(expense.date, range));
+	const byCategory = /* @__PURE__ */ new Map();
+	for (const expense of expenses) byCategory.set(expense.category, (byCategory.get(expense.category) ?? 0) + expense.amount);
+	const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+	const grossProfit = netSales - netCogs;
+	const profit = grossProfit - expenseTotal;
+	const units = sales.reduce((sum, sale) => sum + sale.lines.reduce((qty, line) => qty + line.qty - (line.returnedQty ?? 0), 0), 0);
+	return {
+		grossSales,
+		returnSales,
+		openingSales: opening?.sales ?? 0,
+		openingCogs: opening?.cogs ?? 0,
+		netSales,
+		cogs: netCogs,
+		grossProfit,
+		expenses: [...byCategory.entries()].sort((a, b) => b[1] - a[1]),
+		expenseTotal,
+		profit,
+		units,
+		margin: netSales > 0 ? profit / netSales : 0
+	};
+}
+function monthlyClose(state, year, month) {
+	const from = `${year}-${String(month).padStart(2, "0")}-01`;
+	const last = new Date(year, month, 0).getDate();
+	const to = `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+	const report = profitAndLoss(state, {
+		from,
+		to
+	});
+	const share = Math.min(100, Math.max(0, state.settings.salarySharePct));
+	return {
+		...report,
+		from,
+		to,
+		salarySharePct: share,
+		salaryShare: Math.round(report.profit * (share / 100))
+	};
 }
 //#endregion
 //#region src/lib/books.ts
@@ -23870,6 +24013,62 @@ function applySettleInvestment(state, id) {
 		} }
 	};
 }
+var MONTH_NAMES = [
+	"Enero",
+	"Febrero",
+	"Marzo",
+	"Abril",
+	"Mayo",
+	"Junio",
+	"Julio",
+	"Agosto",
+	"Septiembre",
+	"Octubre",
+	"Noviembre",
+	"Diciembre"
+];
+function applyCloseMonth(state, input) {
+	const year = Math.round(input.year);
+	const month = Math.round(input.month);
+	if (month < 1 || month > 12 || year < 2e3) return fail$1("Ese mes no es válido");
+	const today = input.today ? /* @__PURE__ */ new Date(`${input.today}T12:00:00.000-05:00`) : /* @__PURE__ */ new Date();
+	const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+	const period = `${year}-${String(month).padStart(2, "0")}`;
+	if (period > currentKey) return fail$1("No se puede cerrar un mes que no ha llegado");
+	const close = monthlyClose(state, year, month);
+	const isCurrent = period === currentKey;
+	const equity = isCurrent ? balanceSheet(state).equity : null;
+	const closing = {
+		id: uid(),
+		period,
+		label: `${MONTH_NAMES[month - 1]} ${year}`,
+		from: close.from,
+		to: close.to,
+		equity,
+		openingEquity: null,
+		sales: close.netSales,
+		profit: close.profit,
+		salary: close.salaryShare,
+		units: close.units,
+		margin: close.margin,
+		lines: [],
+		source: "app",
+		locked: true,
+		note: isCurrent ? "Cierre guardado. El patrimonio es el del día en que se cerró el mes." : "Cierre guardado con la ganancia de ese mes. El patrimonio no se anotó porque el mes ya pasó.",
+		...stamp(input.actor)
+	};
+	const closings = [closing, ...state.closings.filter((item) => !(item.source === "app" && item.period === period))];
+	return {
+		ok: true,
+		data: {
+			closing,
+			state: {
+				...state,
+				closings
+			}
+		}
+	};
+}
 function applySalaryShare(state, percent) {
 	if (percent < 0 || percent > 100) return fail$1("El porcentaje va de 0 a 100");
 	return {
@@ -24615,6 +24814,24 @@ function runAction(state, action, input, actor) {
 		case "renameCategory": return map(applyRenameCategory(state, String(body.from), String(body.to)), () => true);
 		case "addColor": return map(applyAddColor(state, String(body.name)), () => true);
 		case "setSalaryShare": return map(applySalaryShare(state, Number(body.percent)), () => true);
+		case "closeMonth": return map(applyCloseMonth(state, {
+			...body,
+			actor
+		}), (data) => data.closing);
+		case "importClosings": {
+			const drafts = body.closings ?? [];
+			if (!drafts.length) return {
+				ok: false,
+				error: "Esa hoja Balance no tiene meses para importar"
+			};
+			return {
+				ok: true,
+				data: {
+					state: applyImportClosings(state, drafts),
+					data: true
+				}
+			};
+		}
 		case "replaceBook": return {
 			ok: true,
 			data: {

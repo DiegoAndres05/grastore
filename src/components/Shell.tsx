@@ -9,6 +9,7 @@ import {
   PackagePlus,
   Receipt,
   Scale,
+  CalendarRange,
   Shirt,
   ShoppingBag,
   Truck,
@@ -45,6 +46,7 @@ const books: { id: PageId; label: string; icon: LucideIcon }[] = [
 
 const closeBooks: { id: PageId; label: string; icon: LucideIcon }[] = [
   { id: 'contabilidad', label: 'Contabilidad', icon: Scale },
+  { id: 'balance', label: 'Balance', icon: CalendarRange },
   { id: 'importar', label: 'Importar', icon: FileUp },
   { id: 'usuarios', label: 'Usuarios', icon: Shield },
 ]
