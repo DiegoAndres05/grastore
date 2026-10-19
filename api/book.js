@@ -21781,6 +21781,11 @@ function coerceWhen(input, fallback = /* @__PURE__ */ new Date()) {
 function availableUnits(product) {
 	return product.stock - (product.reserved ?? 0);
 }
+function accountBalance(state, accountId) {
+	const account = state.accounts.find((item) => item.id === accountId);
+	if (!account) return 0;
+	return state.movements.filter((movement) => movement.accountId === accountId).reduce((sum, movement) => sum + (movement.direction === "in" ? movement.amount : -movement.amount), account.openingBalance);
+}
 function accountForMethod(state, method) {
 	const wanted = method === "efectivo" ? "efectivo" : method === "nequi" || method === "transferencia" ? "nequi" : method === "bancolombia" ? "bancolombia" : null;
 	if (!wanted) return null;
@@ -22901,6 +22906,15 @@ function createSeed() {
 	};
 }
 //#endregion
+//#region src/lib/format.ts
+function money(value) {
+	return new Intl.NumberFormat("es-CO", {
+		style: "currency",
+		currency: "COP",
+		maximumFractionDigits: 0
+	}).format(value);
+}
+//#endregion
 //#region src/lib/books.ts
 function fail$1(error) {
 	return {
@@ -22915,6 +22929,8 @@ function applyTransfer(state, input) {
 	if (!from || !to) return fail$1("Elige las dos cuentas del traslado");
 	const amount = moneyOf(input.amount);
 	if (amount <= 0) return fail$1("Escribe el valor del traslado");
+	const available = Math.max(0, accountBalance(state, from.id));
+	if (amount > available) return fail$1(`En ${from.name} hay ${money(available)}. El traslado no puede pasar de ahí.`);
 	const when = coerceWhen(input.date);
 	const note = input.note?.trim() || `Pasaron a ${to.name}`;
 	let next = withMovement(state, {

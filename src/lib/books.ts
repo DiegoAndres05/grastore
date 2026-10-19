@@ -16,7 +16,8 @@ import type {
   SaleReturn,
   State,
 } from '../types'
-import { accountForMethod, availableUnits, coerceWhen, moneyOf, stamp, uid, withMovement } from './money'
+import { money } from './format'
+import { accountBalance, accountForMethod, availableUnits, coerceWhen, moneyOf, stamp, uid, withMovement } from './money'
 import type { Result } from './logic'
 
 function fail(error: string): Result<never> {
@@ -39,6 +40,8 @@ export function applyTransfer(state: State, input: TransferInput): Result<{ stat
   if (!from || !to) return fail('Elige las dos cuentas del traslado')
   const amount = moneyOf(input.amount)
   if (amount <= 0) return fail('Escribe el valor del traslado')
+  const available = Math.max(0, accountBalance(state, from.id))
+  if (amount > available) return fail(`En ${from.name} hay ${money(available)}. El traslado no puede pasar de ahí.`)
   const when = coerceWhen(input.date)
   const note = input.note?.trim() || `Pasaron a ${to.name}`
   let next = withMovement(state, {

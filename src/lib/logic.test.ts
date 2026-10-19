@@ -267,6 +267,24 @@ describe('ventas', () => {
 })
 
 describe('caja, gastos y patrimonio', () => {
+  it('no traslada más de lo que hay en la cuenta de origen', () => {
+    let state = book()
+    state = {
+      ...state,
+      accounts: state.accounts.map((account) => (account.id === 'acct-efectivo' ? { ...account, openingBalance: 50_000 } : account)),
+    }
+    const over = applyTransfer(state, { fromId: 'acct-efectivo', toId: 'acct-nequi', amount: 60_000 })
+    expect(over.ok).toBe(false)
+    expect(state.movements).toHaveLength(0)
+    const empty = applyTransfer(state, { fromId: 'acct-nequi', toId: 'acct-efectivo', amount: 1 })
+    expect(empty.ok).toBe(false)
+    const all = applyTransfer(state, { fromId: 'acct-efectivo', toId: 'acct-nequi', amount: 50_000 })
+    expect(all.ok).toBe(true)
+    if (!all.ok) return
+    expect(accountBalance(all.data.state, 'acct-efectivo')).toBe(0)
+    expect(accountBalance(all.data.state, 'acct-nequi')).toBe(50_000)
+  })
+
   it('traslada, gasta, presta y cuadra el balance', () => {
     let state = book()
     state = {

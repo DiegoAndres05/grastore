@@ -27,6 +27,9 @@ export function Ledger() {
 
   const selected = state.accounts.find((account) => account.id === accountId) ?? state.accounts[0]
   const rows = useMemo(() => (selected ? ledgerRows(state, selected.id).slice().reverse() : []), [state, selected])
+  const fromAccount = state.accounts.find((account) => account.id === fromId)
+  const available = fromAccount ? Math.max(0, accountBalance(state, fromAccount.id)) : 0
+  const over = amount > available
 
   async function move() {
     const result = await transfer({ fromId, toId, amount, date, note })
@@ -68,11 +71,14 @@ export function Ledger() {
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field label="Sale de">
             <AccountSelect accounts={state.accounts} value={fromId} onChange={setFromId} />
+            <span className="mt-1.5 block text-xs text-muted">
+              Disponible {money(available)}
+            </span>
           </Field>
           <Field label="Entra a">
             <AccountSelect accounts={state.accounts} value={toId} onChange={setToId} />
           </Field>
-          <Field label="Valor">
+          <Field label="Valor" hint={over ? `Solo hay ${money(available)} en ${fromAccount?.name ?? 'esa cuenta'}` : undefined}>
             <MoneyInput value={amount} onChange={setAmount} />
           </Field>
           <Field label="Fecha">
@@ -83,7 +89,7 @@ export function Ledger() {
           </Field>
         </div>
         <FormError>{error}</FormError>
-        <Button className="mt-4" onClick={move}>Pasar dinero</Button>
+        <Button className="mt-4" disabled={over || amount <= 0} onClick={move}>Pasar dinero</Button>
       </section>
       <section className="mb-8 rounded-3xl border border-line p-5">
         <h2 className="font-serif text-2xl">Nueva cuenta</h2>
