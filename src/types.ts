@@ -265,6 +265,8 @@ export type Layaway = {
   balance: number
   status: LayawayStatus
   note: string
+  /** Caja del abono. La devolución de la entrega usa esta cuenta. */
+  accountId?: string | null
   createdBy?: string | null
   createdByName?: string | null
 }

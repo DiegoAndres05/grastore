@@ -23,11 +23,30 @@ export function inventoryValue(state: State) {
   return { garments, investments, total: garments + investments }
 }
 
+// A layaway that reserves a garment is not a sale yet. The garment stays in
+// inventory at cost. Cash received is a customer advance (liability) until
+// delivery, and the unpaid balance is not a receivable, so creating or
+// funding the layaway does not change equity. The margin is recognized only
+// when the garment is delivered. A plan separe imported without a garment
+// (no lines) stays a receivable, because that is how the Excel balance was
+// built and there is nothing to reserve.
+function reservesGarment(item: { lines: { qty: number }[] }) {
+  return item.lines.length > 0
+}
+
 export function receivables(state: State) {
   const credit = state.customers.reduce((sum, customer) => sum + customer.balance, 0)
-  const layaways = state.layaways.filter((item) => item.status === 'abierto').reduce((sum, item) => sum + item.balance, 0)
+  const layaways = state.layaways
+    .filter((item) => item.status === 'abierto' && !reservesGarment(item))
+    .reduce((sum, item) => sum + item.balance, 0)
   const loans = state.loans.reduce((sum, loan) => sum + loan.balance, 0)
   return { credit, layaways, loans, total: credit + layaways + loans }
+}
+
+export function customerDeposits(state: State) {
+  return state.layaways
+    .filter((item) => item.status === 'abierto' && reservesGarment(item))
+    .reduce((sum, item) => sum + item.deposited, 0)
 }
 
 export function payablesTotal(state: State) {
@@ -41,7 +60,9 @@ export function balanceSheet(state: State) {
   const cash = accounts.reduce((sum, account) => sum + account.balance, 0)
   const inventory = inventoryValue(state)
   const receivable = receivables(state)
-  const liabilities = payablesTotal(state)
+  const payables = payablesTotal(state)
+  const deposits = customerDeposits(state)
+  const liabilities = payables + deposits
   const assets = cash + inventory.total + receivable.total
   return {
     accounts,
@@ -49,6 +70,8 @@ export function balanceSheet(state: State) {
     inventory,
     receivable,
     assets,
+    payables,
+    deposits,
     liabilities,
     equity: assets - liabilities,
   }

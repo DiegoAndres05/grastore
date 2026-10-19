@@ -400,7 +400,7 @@ export function parseWorkbook(data: ArrayBuffer | Uint8Array): WorkbookPreview {
   const suppliers = [...new Set(investments.map((item) => item.supplier).filter(Boolean))]
   if (products.some((item) => item.colorReview)) warnings.push('Hay colores que no son colores. Quedaron como "Sin definir" para que los corrijas.')
   if (products.some((item) => item.sizeReview)) warnings.push('Hay tallas que parecen códigos. Quedaron en U para que las corrijas.')
-  if (merges.length) warnings.push('Hay nombres parecidos. Revisa cuáles son la misma persona antes de importar.')
+  if (merges.length) warnings.push('Hay nombres parecidos. No se unen solos: marca Unir solo si son la misma persona.')
 
   return {
     products,
@@ -429,7 +429,7 @@ export function defaultDecisions(preview: WorkbookPreview): ImportDecisions {
       size: product.size,
       include: true,
     })),
-    merges: preview.merges.map((merge) => ({ id: merge.id, accept: true })),
+    merges: preview.merges.map((merge) => ({ id: merge.id, accept: false })),
     excluded: preview.excluded.map((item) => ({ name: item.name, exclude: true })),
     receivables: preview.receivables.map((row) => ({ row: row.row, kind: row.kind, dueDate: row.dueDate, name: row.name })),
     includeInvestments: true,

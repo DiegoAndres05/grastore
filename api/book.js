@@ -23364,6 +23364,7 @@ function applyLayaway(state, input) {
 		balance: total - deposit,
 		status: "abierto",
 		note: input.note?.trim() ?? "",
+		accountId: account?.id ?? null,
 		...stamp(input.actor)
 	};
 	let next = {
@@ -23412,7 +23413,8 @@ function applyLayawayDeposit(state, input) {
 	const layaway = {
 		...current,
 		deposited: current.deposited + amount,
-		balance: current.balance - amount
+		balance: current.balance - amount,
+		accountId: current.accountId || account.id
 	};
 	let next = {
 		...state,
@@ -23456,7 +23458,7 @@ function applyCompleteLayaway(state, input) {
 		balance: 0,
 		tendered: null,
 		note: `Plan separe ${layaway.number}`,
-		accountId: null,
+		accountId: layaway.accountId ?? null,
 		cashIn: 0,
 		dueDate: null,
 		kind: "retail",
@@ -23537,10 +23539,13 @@ function applyVoidSale(state, input) {
 	const sale = state.sales.find((item) => item.id === input.saleId);
 	if (!sale) return fail$1("Venta no encontrada");
 	if (sale.voided) return fail$1("Esa venta ya está anulada");
+	const layawaySale = Boolean(sale.layawayId);
+	if (layawaySale && sale.lines.some((line) => (line.returnedQty ?? 0) > 0)) return fail$1("Este apartado ya tiene una devolución. No se puede anular la entrega.");
 	const cashIn = sale.cashIn ?? (sale.method === "credito" ? sale.paid : sale.total);
-	if ((sale.kind ?? "retail") !== "opening" && sale.paid > cashIn) return fail$1("Esta venta ya tiene abonos. Registra una devolución.");
+	if (!layawaySale && (sale.kind ?? "retail") !== "opening" && sale.paid > cashIn) return fail$1("Esta venta ya tiene abonos. Registra una devolución.");
 	const when = coerceWhen(input.date);
 	const qtyById = new Map(sale.lines.map((line) => [line.productId, line.qty - (line.returnedQty ?? 0)]));
+	const reopen = sale.layawayId ? state.layaways.find((item) => item.id === sale.layawayId && item.lines.length > 0) : void 0;
 	let next = {
 		...state,
 		sales: state.sales.map((item) => item.id === sale.id ? {
@@ -23550,12 +23555,20 @@ function applyVoidSale(state, input) {
 			voidedBy: input.actor?.id ?? null,
 			voidedByName: input.actor?.name ?? null
 		} : item),
-		products: sale.affectsStock === false ? state.products : state.products.map((product) => {
+		layaways: reopen ? state.layaways.map((item) => item.id === reopen.id ? {
+			...item,
+			status: "abierto",
+			balance: 0,
+			deposited: item.total
+		} : item) : state.layaways,
+		products: sale.affectsStock === false && !reopen ? state.products : state.products.map((product) => {
 			const qty = qtyById.get(product.id);
-			return qty ? {
+			if (!qty) return product;
+			return {
 				...product,
-				stock: product.stock + qty
-			} : product;
+				stock: sale.affectsStock === false ? product.stock : product.stock + qty,
+				reserved: reopen ? (product.reserved ?? 0) + qty : product.reserved
+			};
 		}),
 		customers: sale.customerId && sale.balance > 0 ? state.customers.map((customer) => customer.id === sale.customerId ? {
 			...customer,
@@ -24713,6 +24726,20 @@ async function readBody(req) {
 	for await (const chunk of req) chunks.push(Buffer.from(chunk));
 	return Buffer.concat(chunks).toString("utf8");
 }
+async function readRequestJson(req) {
+	const preset = req.body;
+	if (Buffer.isBuffer(preset)) {
+		const text = preset.toString("utf8").trim();
+		return text ? JSON.parse(text) : {};
+	}
+	if (typeof preset === "string") {
+		const text = preset.trim();
+		return text ? JSON.parse(text) : {};
+	}
+	if (preset && typeof preset === "object") return preset;
+	const text = (await readBody(req)).trim();
+	return text ? JSON.parse(text) : {};
+}
 function send(res, status, body) {
 	res.statusCode = status;
 	res.setHeader("content-type", "application/json; charset=utf-8");
@@ -24813,7 +24840,7 @@ async function handleBookRequest(req, res) {
 	});
 	let body;
 	try {
-		body = JSON.parse(await readBody(req) || "{}");
+		body = await readRequestJson(req);
 	} catch {
 		return send(res, 400, {
 			ok: false,

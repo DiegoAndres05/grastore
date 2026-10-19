@@ -115,7 +115,7 @@ export function ImportBook() {
         <div className="space-y-6">
           <section>
             <h2 className="font-serif text-2xl">Nombres parecidos</h2>
-            {preview.merges.length === 0 ? <p className="mt-2 text-sm text-muted">No hay duplicados dudosos.</p> : null}
+            {preview.merges.length === 0 ? <p className="mt-2 text-sm text-muted">No hay duplicados dudosos.</p> : <p className="mt-2 text-sm text-muted">Nada está marcado. Marca Unir solo si los dos nombres son la misma persona.</p>}
             <ul className="mt-3 space-y-2">
               {preview.merges.map((merge) => {
                 const decision = decisions.merges.find((item) => item.id === merge.id)

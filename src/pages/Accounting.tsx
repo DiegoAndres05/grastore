@@ -29,14 +29,14 @@ export function Accounting() {
       <PageHeader
         kicker="Balance LAGRASITASTORECTG"
         title="Contabilidad"
-        text="El patrimonio es caja + cartera + inventario − lo que se debe. Las filas de inversión del Excel van aparte de las prendas, y las dos suman el inventario del balance."
+        text="El patrimonio es caja + cartera + inventario − por pagar − anticipos de apartados. Un plan separe nuevo no sube el patrimonio: el abono queda como anticipo y la prenda sigue en inventario a costo hasta la entrega."
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ['Caja y bancos', sheet.cash],
           ['Cartera', sheet.receivable.total],
           ['Inventario', sheet.inventory.total],
-          ['Por pagar', sheet.liabilities],
+          ['Por pagar', sheet.payables],
         ].map(([label, value]) => (
           <article key={String(label)} className="rounded-2xl border border-line bg-card p-4">
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">{label}</p>
@@ -47,7 +47,7 @@ export function Accounting() {
       <section className="mt-4 rounded-3xl bg-brass p-6 text-espresso">
         <p className="text-[11px] tracking-[0.18em] uppercase">Patrimonio</p>
         <p className="mt-2 font-serif text-5xl tabular-nums">{money(sheet.equity)}</p>
-        <p className="mt-2 text-sm">Activos {money(sheet.assets)} − pasivos {money(sheet.liabilities)}</p>
+        <p className="mt-2 text-sm">Activos {money(sheet.assets)} − por pagar {money(sheet.payables)} − anticipos {money(sheet.deposits)}</p>
       </section>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section className="rounded-3xl border border-line p-5">
@@ -59,7 +59,8 @@ export function Accounting() {
               </li>
             ))}
             <li className="flex justify-between border-t border-line py-2 text-sm"><span>Ventas a crédito</span><span className="tabular-nums">{money(sheet.receivable.credit)}</span></li>
-            <li className="flex justify-between border-t border-line py-2 text-sm"><span>Plan separe</span><span className="tabular-nums">{money(sheet.receivable.layaways)}</span></li>
+            <li className="flex justify-between border-t border-line py-2 text-sm"><span>Plan separe importado</span><span className="tabular-nums">{money(sheet.receivable.layaways)}</span></li>
+            <li className="flex justify-between border-t border-line py-2 text-sm"><span>Anticipos de apartados</span><span className="tabular-nums">{money(sheet.deposits)}</span></li>
             <li className="flex justify-between border-t border-line py-2 text-sm"><span>Préstamos</span><span className="tabular-nums">{money(sheet.receivable.loans)}</span></li>
             <li className="flex justify-between border-t border-line py-2 text-sm"><span>Prendas a costo</span><span className="tabular-nums">{money(sheet.inventory.garments)}</span></li>
             <li className="flex justify-between border-t border-line py-2 text-sm"><span>Inversión sin detalle</span><span className="tabular-nums">{money(sheet.inventory.investments)}</span></li>
@@ -84,6 +85,33 @@ export function Accounting() {
           <p className="mt-4 font-serif text-3xl tabular-nums">{money(report.profit)}</p>
           <p className="text-sm text-muted">Margen {percent(report.margin)} · {report.units} unidades</p>
           {report.openingSales ? <p className="mt-2 text-xs text-muted">Incluye el histórico importado: ventas {money(report.openingSales)} y costo {money(report.openingCogs)}.</p> : null}
+          {state.openingPnl && report.openingSales === 0 ? (
+            <div className="mt-3 rounded-2xl border border-brass/40 bg-brass/10 p-3 text-sm">
+              <p>
+                El histórico importado está fuera de estas fechas, por eso aquí sale en cero. Quedó al {state.openingPnl.asOf}: ventas {money(state.openingPnl.sales)} y costo {money(state.openingPnl.cogs)}.
+              </p>
+              <button
+                type="button"
+                className="mt-2 text-sm text-brass-deep underline"
+                onClick={() => {
+                  const opening = state.openingPnl
+                  if (!opening) return
+                  const [yearText, monthText] = opening.asOf.split('-')
+                  const historicYear = Number(yearText)
+                  const historicMonth = Number(monthText)
+                  if (!historicYear || !historicMonth) return
+                  const last = new Date(historicYear, historicMonth, 0).getDate()
+                  const month = String(historicMonth).padStart(2, '0')
+                  setFrom(`${historicYear}-${month}-01`)
+                  setTo(`${historicYear}-${month}-${String(last).padStart(2, '0')}`)
+                  setYear(historicYear)
+                  setMonth(historicMonth)
+                }}
+              >
+                Ver el mes del histórico
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
       <section className="mt-6 rounded-3xl border border-line p-5">

@@ -77,10 +77,12 @@ describe('importador', () => {
     expect(preview.excluded.some((item) => item.name === 'Pago Tatuaje')).toBe(true)
     expect(preview.workbookEquity).toBe(233_220)
 
-    const state = importBook(preview, defaultDecisions(preview))
+    const decisions = defaultDecisions(preview)
+    expect(decisions.merges.every((item) => item.accept === false)).toBe(true)
+    const state = importBook(preview, decisions)
     expect(state.products.reduce((sum, product) => sum + product.stock, 0)).toBe(4)
     expect(state.customers.map((customer) => customer.name)).toContain('Cliente Ejemplo')
-    expect(state.customers.map((customer) => customer.name)).not.toContain('Cliente Ejempl')
+    expect(state.customers.map((customer) => customer.name)).toContain('Cliente Ejempl')
     expect(state.customers.map((customer) => customer.name)).not.toContain('Pago Tatuaje')
     expect(state.suppliers.map((supplier) => supplier.name)).toContain('Taller')
     expect(state.layaways).toHaveLength(1)
@@ -95,6 +97,11 @@ describe('importador', () => {
     expect(sheet.liabilities).toBe(11_223 + 33_445)
     expect(sheet.equity).toBe(sheet.assets - sheet.liabilities)
     expect(sheet.equity).toBe(233_220)
+
+    const merged = importBook(preview, { ...decisions, merges: decisions.merges.map((item) => ({ ...item, accept: true })) })
+    expect(merged.customers.map((customer) => customer.name)).toContain('Cliente Ejemplo')
+    expect(merged.customers.map((customer) => customer.name)).not.toContain('Cliente Ejempl')
+    expect(balanceSheet(merged).equity).toBe(233_220)
 
     const report = profitAndLoss(state, { from: '2025-01-01', to: '2025-12-31' })
     expect(report.openingSales).toBe(67_890)

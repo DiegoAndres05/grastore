@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { balanceSheet, monthlyClose, profitAndLoss } from './accounting'
 import { emptyState } from './book'
 import {
+  applyCancelLayaway,
   applyCapital,
+  applyCompleteLayaway,
   applyExpense,
   applyLayaway,
+  applyLayawayDeposit,
   applyLoan,
   applyPayable,
   applyPayPayable,
@@ -362,5 +365,127 @@ describe('caja, gastos y patrimonio', () => {
       note: '',
     })
     expect(blocked.ok).toBe(false)
+  })
+
+  it('un apartado no cambia el patrimonio hasta la entrega', () => {
+    const state = book()
+    const before = balanceSheet(state)
+    const product = state.products[0]
+    const customer = state.customers[0]
+    const created = applyLayaway(state, {
+      customerId: customer.id,
+      lines: [{ productId: product.id, qty: 3, price: 90_000 }],
+      deposit: 50_000,
+      accountId: 'acct-nequi',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const opened = balanceSheet(created.data.state)
+    expect(opened.equity).toBe(before.equity)
+    expect(opened.cash).toBe(before.cash + 50_000)
+    expect(opened.deposits).toBe(50_000)
+    expect(opened.receivable.layaways).toBe(0)
+    expect(opened.inventory.garments).toBe(before.inventory.garments)
+    expect(accountBalance(created.data.state, 'acct-nequi')).toBe(50_000)
+    expect(accountBalance(created.data.state, 'acct-efectivo')).toBe(0)
+
+    const extra = applyLayawayDeposit(created.data.state, {
+      layawayId: created.data.layaway.id,
+      amount: 20_000,
+      accountId: 'acct-nequi',
+    })
+    expect(extra.ok).toBe(true)
+    if (!extra.ok) return
+    expect(balanceSheet(extra.data.state).equity).toBe(before.equity)
+    expect(balanceSheet(extra.data.state).deposits).toBe(70_000)
+
+    const rest = applyLayawayDeposit(extra.data.state, {
+      layawayId: created.data.layaway.id,
+      amount: 200_000,
+      accountId: 'acct-bancolombia',
+    })
+    expect(rest.ok).toBe(true)
+    if (!rest.ok) return
+    expect(balanceSheet(rest.data.state).equity).toBe(before.equity)
+
+    const delivered = applyCompleteLayaway(rest.data.state, { layawayId: created.data.layaway.id })
+    expect(delivered.ok).toBe(true)
+    if (!delivered.ok) return
+    const margin = 270_000 - 150_000
+    const finished = balanceSheet(delivered.data.state)
+    expect(finished.equity).toBe(before.equity + margin)
+    expect(finished.deposits).toBe(0)
+    expect(finished.inventory.garments).toBe(before.inventory.garments - 150_000)
+    expect(delivered.data.state.products[0].stock).toBe(1)
+    expect(delivered.data.state.products[0].reserved).toBe(0)
+    expect(delivered.data.sale.cashIn).toBe(0)
+    expect(delivered.data.sale.accountId).toBe('acct-nequi')
+    const report = profitAndLoss(delivered.data.state, { from: '2000-01-01', to: '2100-01-01' })
+    expect(report.netSales).toBe(270_000)
+    expect(report.cogs).toBe(150_000)
+    expect(report.profit).toBe(margin)
+
+    const voided = applyVoidSale(delivered.data.state, { saleId: delivered.data.sale.id })
+    expect(voided.ok).toBe(true)
+    if (!voided.ok) return
+    const restored = balanceSheet(voided.data.state)
+    expect(restored.equity).toBe(before.equity)
+    expect(restored.deposits).toBe(270_000)
+    expect(voided.data.state.products[0].stock).toBe(4)
+    expect(voided.data.state.products[0].reserved).toBe(3)
+    expect(voided.data.state.layaways[0].status).toBe('abierto')
+    expect(accountBalance(voided.data.state, 'acct-nequi')).toBe(70_000)
+    expect(accountBalance(voided.data.state, 'acct-bancolombia')).toBe(200_000)
+  })
+
+  it('cancelar un apartado devuelve el abono y deja el patrimonio igual', () => {
+    const state = book()
+    const before = balanceSheet(state)
+    const product = state.products[0]
+    const customer = state.customers[0]
+    const created = applyLayaway(state, {
+      customerId: customer.id,
+      lines: [{ productId: product.id, qty: 1, price: 90_000 }],
+      deposit: 30_000,
+      accountId: 'acct-bancolombia',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const cancelled = applyCancelLayaway(created.data.state, {
+      layawayId: created.data.layaway.id,
+      accountId: 'acct-bancolombia',
+    })
+    expect(cancelled.ok).toBe(true)
+    if (!cancelled.ok) return
+    const after = balanceSheet(cancelled.data.state)
+    expect(after.equity).toBe(before.equity)
+    expect(after.cash).toBe(before.cash)
+    expect(after.deposits).toBe(0)
+    expect(cancelled.data.state.products[0].reserved).toBe(0)
+    expect(cancelled.data.state.products[0].stock).toBe(4)
+    expect(cancelled.data.state.layaways[0].status).toBe('cancelado')
+  })
+
+  it('un plan separe importado sin prenda sigue en cartera', () => {
+    const state = book()
+    const customer = state.customers[0]
+    state.layaways = [{
+      id: 'lay-import',
+      number: 'S-0001',
+      date: new Date().toISOString(),
+      dueDate: null,
+      customerId: customer.id,
+      customerName: customer.name,
+      lines: [],
+      total: 40_000,
+      deposited: 0,
+      balance: 40_000,
+      status: 'abierto',
+      note: 'importado',
+    }]
+    const sheet = balanceSheet(state)
+    expect(sheet.receivable.layaways).toBe(40_000)
+    expect(sheet.deposits).toBe(0)
+    expect(sheet.equity).toBe(sheet.assets - sheet.liabilities)
   })
 })
