@@ -69,7 +69,9 @@ export function salesRows(state: State) {
     Total: sale.total,
     Pagado: sale.paid,
     Saldo: sale.balance,
-    Medio: METHOD_LABEL[sale.method] ?? sale.method,
+    Medio: sale.payments && sale.payments.length > 0
+      ? sale.payments.map((part) => `${METHOD_LABEL[part.method]} ${part.amount}`).join(' + ')
+      : METHOD_LABEL[sale.method] ?? sale.method,
     Estado: sale.voided ? 'Anulada' : sale.kind === 'opening' ? 'Saldo inicial' : sale.balance > 0 ? 'Por cobrar' : 'Pagada',
     Corte: sale.dueDate ?? '',
     Nota: sale.note,

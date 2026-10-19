@@ -592,7 +592,22 @@ export function applyVoidSale(state: State, input: { saleId: string; date?: stri
         : state.customers,
   }
   const accountId = sale.accountId || accountForMethod(state, sale.method)?.id || null
-  if (cashIn > 0 && accountId) {
+  if (sale.payments && sale.payments.length > 0) {
+    for (const part of sale.payments) {
+      if (!part.accountId || part.amount <= 0) continue
+      next = withMovement(next, {
+        date: when,
+        accountId: part.accountId,
+        kind: 'void',
+        direction: 'out',
+        amount: part.amount,
+        counterparty: sale.customerName,
+        note: `Anulación ${sale.number}`,
+        refId: sale.id,
+        actor: input.actor,
+      })
+    }
+  } else if (cashIn > 0 && accountId) {
     next = withMovement(next, {
       date: when,
       accountId,
@@ -635,6 +650,7 @@ export function applyUpdateSale(state: State, saleId: string, patch: SalePatch):
   if (total <= 0) return fail('El total debe ser mayor a cero')
   if (total < sale.paid) return fail('El nuevo total queda por debajo de lo ya pagado. Registra una devolución.')
   const delta = total - sale.total
+  if ((sale.payments?.length ?? 0) > 1 && delta !== 0) return fail('Esta venta quedó en varias cuentas. El total no se mueve desde aquí.')
   const balance = sale.method === 'credito' ? sale.balance + delta : sale.balance
   if (sale.customerId && sale.method === 'credito' && delta > 0) {
     const customer = state.customers.find((item) => item.id === sale.customerId)

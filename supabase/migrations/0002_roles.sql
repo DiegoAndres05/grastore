@@ -475,24 +475,24 @@ begin
   end if;
   next_version := current_version + 1;
 
-  delete from public.products;
-  delete from public.customers;
-  delete from public.suppliers;
-  delete from public.sales;
-  delete from public.purchases;
-  delete from public.collections;
-  delete from public.accounts;
-  delete from public.movements;
-  delete from public.expenses;
-  delete from public.payables;
-  delete from public.payable_payments;
-  delete from public.capital_events;
-  delete from public.loans;
-  delete from public.loan_payments;
-  delete from public.layaways;
-  delete from public.returns;
-  delete from public.adjustments;
-  delete from public.investments;
+  delete from public.products where true;
+  delete from public.customers where true;
+  delete from public.suppliers where true;
+  delete from public.sales where true;
+  delete from public.purchases where true;
+  delete from public.collections where true;
+  delete from public.accounts where true;
+  delete from public.movements where true;
+  delete from public.expenses where true;
+  delete from public.payables where true;
+  delete from public.payable_payments where true;
+  delete from public.capital_events where true;
+  delete from public.loans where true;
+  delete from public.loan_payments where true;
+  delete from public.layaways where true;
+  delete from public.returns where true;
+  delete from public.adjustments where true;
+  delete from public.investments where true;
 
   insert into public.products (id, data)
   select item ->> 'id', item from jsonb_array_elements(coalesce(payload -> 'products', '[]'::jsonb)) item where coalesce(item ->> 'id', '') <> '';

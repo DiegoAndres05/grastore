@@ -78,6 +78,12 @@ export type SaleLine = {
   returnedQty?: number
 }
 
+export type SalePayment = {
+  method: CashMethod
+  amount: number
+  accountId: string | null
+}
+
 export type Sale = {
   id: string
   number: string
@@ -94,6 +100,7 @@ export type Sale = {
   note: string
   accountId?: string | null
   cashIn?: number
+  payments?: SalePayment[]
   dueDate?: string | null
   kind?: SaleKind
   voided?: boolean

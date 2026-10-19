@@ -14,6 +14,8 @@ import type {
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 
+export type PaymentPart = { method: CashMethod; amount: number }
+
 export type CheckoutInput = {
   lines: { productId: string; qty: number; price?: number }[]
   customerId: string | null
@@ -25,6 +27,7 @@ export type CheckoutInput = {
   date?: string
   dueDate?: string | null
   accountId?: string | null
+  payments?: PaymentPart[]
   actor?: Actor | null
 }
 
@@ -134,32 +137,51 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
   let paid = total
   let balance = 0
   let tendered: number | null = null
+  let method = input.method
+  let payments: Sale['payments']
+  let account: { id: string } | null = null
+  let cashIn = 0
+  const deposits: { accountId: string; amount: number }[] = []
 
-  if (input.method === 'credito') {
-    if (!customer) return fail('El crédito de tienda necesita un cliente')
-    paid = moneyOf(input.paid)
-    if (paid > total) return fail('El abono no puede superar el total')
-    balance = total - paid
-    if (customer.balance + balance > customer.creditLimit) {
-      return fail(`El saldo supera el cupo de ${customer.name}`)
+  if (input.payments) {
+    const settled = settlePayments(state, input.payments, total, customer)
+    if (!settled.ok) return settled
+    paid = settled.data.paid
+    balance = settled.data.balance
+    method = settled.data.method
+    payments = settled.data.payments
+    cashIn = settled.data.cashIn
+    account = settled.data.account
+    deposits.push(...settled.data.deposits)
+  } else {
+    if (input.method === 'credito') {
+      if (!customer) return fail('El crédito de tienda necesita un cliente')
+      paid = moneyOf(input.paid)
+      if (paid > total) return fail('El abono no puede superar el total')
+      balance = total - paid
+      if (customer.balance + balance > customer.creditLimit) {
+        return fail(`El saldo supera el cupo de ${customer.name}`)
+      }
     }
-  }
 
-  if (input.method === 'efectivo') {
-    tendered = moneyOf(input.tendered)
-    if (tendered < total) return fail('El efectivo recibido no cubre el total')
+    if (input.method === 'efectivo') {
+      tendered = moneyOf(input.tendered)
+      if (tendered < total) return fail('El efectivo recibido no cubre el total')
+    }
+
+    account = input.accountId
+      ? state.accounts.find((item) => item.id === input.accountId) ?? null
+      : input.method === 'credito'
+        ? paid > 0
+          ? accountForMethod(state, 'efectivo')
+          : null
+        : accountForMethod(state, input.method)
+    cashIn = input.method === 'credito' ? paid : input.method === 'tarjeta' ? 0 : total
+    if (cashIn > 0 && !account) return fail('Elige la cuenta donde entra el dinero')
+    if (account && cashIn > 0) deposits.push({ accountId: account.id, amount: cashIn })
   }
 
   const when = coerceWhen(input.date)
-  const account = input.accountId
-    ? state.accounts.find((item) => item.id === input.accountId) ?? null
-    : input.method === 'credito'
-      ? paid > 0
-        ? accountForMethod(state, 'efectivo')
-        : null
-      : accountForMethod(state, input.method)
-  const cashIn = input.method === 'credito' ? paid : input.method === 'tarjeta' ? 0 : total
-  if (cashIn > 0 && !account) return fail('Elige la cuenta donde entra el dinero')
 
   const sale: Sale = {
     id: uid(),
@@ -170,14 +192,15 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
     lines: saleLines,
     discount,
     total,
-    method: input.method,
+    method,
     paid,
     balance,
     tendered,
     note: input.note.trim(),
     accountId: account?.id ?? null,
     cashIn,
-    dueDate: input.method === 'credito' ? input.dueDate || null : null,
+    payments,
+    dueDate: input.method === 'credito' || balance > 0 ? input.dueDate || null : null,
     kind: 'retail',
     voided: false,
     affectsStock: true,
@@ -197,13 +220,13 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
       customer && item.id === customer.id && balance > 0 ? { ...item, balance: item.balance + balance } : item,
     ),
   }
-  if (account && cashIn > 0) {
+  for (const deposit of deposits) {
     next = withMovement(next, {
       date: when,
-      accountId: account.id,
+      accountId: deposit.accountId,
       kind: 'sale',
       direction: 'in',
-      amount: cashIn,
+      amount: deposit.amount,
       counterparty: sale.customerName,
       note: sale.number,
       refId: sale.id,
@@ -212,6 +235,64 @@ export function applyCheckout(state: State, input: CheckoutInput): Result<{ stat
   }
 
   return { ok: true, data: { sale, state: next } }
+}
+
+const SPLIT_METHODS: CashMethod[] = ['efectivo', 'nequi', 'bancolombia', 'tarjeta', 'transferencia']
+
+function settlePayments(
+  state: State,
+  parts: PaymentPart[],
+  total: number,
+  customer: Customer | null,
+): Result<{
+  paid: number
+  balance: number
+  method: PayMethod
+  payments: Sale['payments']
+  cashIn: number
+  account: { id: string } | null
+  deposits: { accountId: string; amount: number }[]
+}> {
+  const merged = new Map<CashMethod, number>()
+  for (const part of parts) {
+    if ((part.method as string) === 'credito') return fail('El crédito es el saldo que queda, no un medio de entrada')
+    if (!SPLIT_METHODS.includes(part.method)) return fail('Ese medio de pago no existe')
+    const amount = moneyOf(part.amount)
+    if (amount <= 0) continue
+    merged.set(part.method, (merged.get(part.method) ?? 0) + amount)
+  }
+  if (merged.size === 0) return fail('Escribe cuánto entra por cada medio')
+
+  const payments: NonNullable<Sale['payments']> = []
+  const deposits: { accountId: string; amount: number }[] = []
+  for (const [method, amount] of merged) {
+    const found = accountForMethod(state, method)
+    if (method !== 'tarjeta' && !found) return fail('Elige la cuenta donde entra el dinero')
+    payments.push({ method, amount, accountId: found?.id ?? null })
+    if (found) deposits.push({ accountId: found.id, amount })
+  }
+
+  const paid = payments.reduce((sum, part) => sum + part.amount, 0)
+  if (paid > total) return fail('El pago supera el total')
+  const balance = total - paid
+  if (balance > 0) {
+    if (!customer) return fail('El saldo a crédito necesita un cliente')
+    if (customer.balance + balance > customer.creditLimit) return fail(`El saldo supera el cupo de ${customer.name}`)
+  }
+
+  const lead = [...payments].sort((a, b) => b.amount - a.amount)[0]
+  return {
+    ok: true,
+    data: {
+      paid,
+      balance,
+      method: balance > 0 ? 'credito' : lead.method,
+      payments,
+      cashIn: paid,
+      account: payments.find((part) => part.accountId)?.accountId ? { id: payments.find((part) => part.accountId)!.accountId! } : null,
+      deposits,
+    },
+  }
 }
 
 export function applyCollection(

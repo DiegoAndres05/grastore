@@ -147,6 +147,93 @@ describe('ventas', () => {
     const report = profitAndLoss(voided.data.state, { from: '2020-01-01', to: '2030-01-01' })
     expect(report.netSales).toBe(0)
   })
+
+  it('parte un pago completo entre efectivo y Nequi en una sola venta', () => {
+    const state = book()
+    const product = state.products[0]
+    const sold = applyCheckout(state, {
+      lines: [{ productId: product.id, qty: 1, price: 100_000 }],
+      customerId: null,
+      discount: 0,
+      method: 'efectivo',
+      paid: 0,
+      tendered: 0,
+      note: '',
+      payments: [
+        { method: 'efectivo', amount: 60_000 },
+        { method: 'nequi', amount: 40_000 },
+      ],
+    })
+    expect(sold.ok).toBe(true)
+    if (!sold.ok) return
+    expect(sold.data.state.sales).toHaveLength(1)
+    expect(sold.data.sale.total).toBe(100_000)
+    expect(sold.data.sale.balance).toBe(0)
+    expect(sold.data.sale.paid).toBe(100_000)
+    expect(accountBalance(sold.data.state, 'acct-efectivo')).toBe(60_000)
+    expect(accountBalance(sold.data.state, 'acct-nequi')).toBe(40_000)
+    expect(sold.data.state.movements.filter((item) => item.refId === sold.data.sale.id)).toHaveLength(2)
+    const report = profitAndLoss(sold.data.state, { from: '2020-01-01', to: '2030-01-01' })
+    expect(report.netSales).toBe(100_000)
+    expect(report.cogs).toBe(50_000)
+    expect(report.grossProfit).toBe(50_000)
+  })
+
+  it('deja el saldo a crédito cuando efectivo y Nequi no cubren el total', () => {
+    const state = book()
+    const product = state.products[0]
+    const customer = state.customers[0]
+    const sold = applyCheckout(state, {
+      lines: [{ productId: product.id, qty: 1, price: 90_000 }],
+      customerId: customer.id,
+      discount: 0,
+      method: 'credito',
+      paid: 0,
+      tendered: 0,
+      note: '',
+      dueDate: '2026-10-30',
+      payments: [
+        { method: 'efectivo', amount: 30_000 },
+        { method: 'nequi', amount: 20_000 },
+      ],
+    })
+    expect(sold.ok).toBe(true)
+    if (!sold.ok) return
+    expect(sold.data.state.sales).toHaveLength(1)
+    expect(sold.data.sale.method).toBe('credito')
+    expect(sold.data.sale.paid).toBe(50_000)
+    expect(sold.data.sale.balance).toBe(40_000)
+    expect(sold.data.sale.dueDate).toBe('2026-10-30')
+    expect(sold.data.state.customers[0].balance).toBe(40_000)
+    expect(accountBalance(sold.data.state, 'acct-efectivo')).toBe(30_000)
+    expect(accountBalance(sold.data.state, 'acct-nequi')).toBe(20_000)
+    const report = profitAndLoss(sold.data.state, { from: '2020-01-01', to: '2030-01-01' })
+    expect(report.netSales).toBe(90_000)
+    expect(report.grossProfit).toBe(40_000)
+  })
+
+  it('sigue registrando un solo medio cuando el pago no se divide', () => {
+    const state = book()
+    const product = state.products[0]
+    const sold = applyCheckout(state, {
+      lines: [{ productId: product.id, qty: 1 }],
+      customerId: null,
+      discount: 0,
+      method: 'nequi',
+      paid: 90_000,
+      tendered: 0,
+      note: '',
+      payments: [{ method: 'nequi', amount: 90_000 }],
+    })
+    expect(sold.ok).toBe(true)
+    if (!sold.ok) return
+    expect(sold.data.state.sales).toHaveLength(1)
+    expect(sold.data.sale.method).toBe('nequi')
+    expect(sold.data.sale.balance).toBe(0)
+    expect(accountBalance(sold.data.state, 'acct-nequi')).toBe(90_000)
+    expect(accountBalance(sold.data.state, 'acct-efectivo')).toBe(0)
+    expect(sold.data.state.movements.filter((item) => item.kind === 'sale')).toHaveLength(1)
+  })
 })
 
 describe('caja, gastos y patrimonio', () => {

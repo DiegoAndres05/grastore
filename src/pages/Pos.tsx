@@ -3,12 +3,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { METHOD_LABEL, PAY_METHODS, norm, swatch } from '../lib/catalog'
 import { money, nextCutoff, todayInput } from '../lib/format'
 import { availableUnits } from '../lib/money'
-import type { Customer, PayMethod, Product, Sale } from '../types'
+import type { CashMethod, Customer, PayMethod, Product, Sale } from '../types'
 import { useStore } from '../store'
 import { Button, FormError, Modal } from '../components/ui'
 
 type CartLine = { productId: string; qty: number; price: number }
 const methods: PayMethod[] = PAY_METHODS
+const splitMethods = ['efectivo', 'nequi', 'bancolombia', 'tarjeta'] as const
+type SplitMethod = (typeof splitMethods)[number]
+const emptyParts = (): Record<SplitMethod, number> => ({ efectivo: 0, nequi: 0, bancolombia: 0, tarjeta: 0 })
 
 export function Pos() {
   const { state, checkout, layaway, toast } = useStore()
@@ -20,6 +23,8 @@ export function Pos() {
   const [customerId, setCustomerId] = useState('')
   const [discount, setDiscount] = useState(0)
   const [method, setMethod] = useState<PayMethod>('efectivo')
+  const [split, setSplit] = useState(false)
+  const [parts, setParts] = useState(emptyParts)
   const [paid, setPaid] = useState(0)
   const [tendered, setTendered] = useState(0)
   const [note, setNote] = useState('')
@@ -63,7 +68,9 @@ export function Pos() {
   const customer = state.customers.find((item) => item.id === customerId)
   const creditDue = method === 'credito' ? Math.max(0, total - Math.min(paid, total)) : 0
   const room = customer ? customer.creditLimit - customer.balance : 0
-  const change = method === 'efectivo' ? Math.max(0, tendered - total) : 0
+  const change = !split && method === 'efectivo' ? Math.max(0, tendered - total) : 0
+  const received = splitMethods.reduce((sum, item) => sum + (parts[item] || 0), 0)
+  const splitGap = Math.max(0, total - received)
 
   useEffect(() => {
     if (method === 'efectivo') setTendered(total)
@@ -113,16 +120,22 @@ export function Pos() {
   async function cobrar() {
     if (lock.current) return
     lock.current = true
+    if (split && received > total) {
+      lock.current = false
+      setError('El pago supera el total')
+      return
+    }
     const result = await checkout({
       lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
       customerId: customerId || null,
       discount: safeDiscount,
       method,
-      paid: method === 'credito' ? Math.min(paid, total) : total,
+      paid: split ? received : method === 'credito' ? Math.min(paid, total) : total,
       tendered,
       note,
       date: when,
-      dueDate: method === 'credito' ? dueDate || null : null,
+      dueDate: split ? (splitGap > 0 ? dueDate || null : null) : method === 'credito' ? dueDate || null : null,
+      payments: split ? splitMethods.map((item) => ({ method: item as CashMethod, amount: parts[item] || 0 })) : undefined,
     })
     if (!result.ok) {
       lock.current = false
@@ -133,6 +146,7 @@ export function Pos() {
     setDiscount(0)
     setPaid(0)
     setTendered(0)
+    setParts(emptyParts())
     setNote('')
     setNotice('')
     setError('')
@@ -191,7 +205,16 @@ export function Pos() {
       safeDiscount={safeDiscount}
       setDiscount={setDiscount}
       method={method}
-      setMethod={setMethod}
+      setMethod={(value) => {
+        setSplit(false)
+        setMethod(value)
+      }}
+      split={split}
+      setSplit={setSplit}
+      parts={parts}
+      setPart={(item, amount) => setParts((current) => ({ ...current, [item]: amount }))}
+      received={received}
+      splitGap={splitGap}
       tendered={tendered}
       setTendered={setTendered}
       paid={paid}
@@ -223,7 +246,12 @@ export function Pos() {
         <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Total</p>
         <p className="font-serif text-3xl tabular-nums">{money(total)}</p>
       </div>
-      {method === 'efectivo' && detailed.length > 0 && change > 0 ? <p className="mt-1 text-right text-sm text-muted">Cambio {money(change)}</p> : null}
+      {split && detailed.length > 0 ? (
+        <p className="mt-1 text-right text-sm text-muted">
+          Recibido {money(Math.min(received, total))} · saldo {money(splitGap)}
+        </p>
+      ) : null}
+      {!split && method === 'efectivo' && detailed.length > 0 && change > 0 ? <p className="mt-1 text-right text-sm text-muted">Cambio {money(change)}</p> : null}
       <Button className="mt-4 w-full" disabled={detailed.length === 0} onClick={cobrar}>
         Cobrar
       </Button>
@@ -332,7 +360,13 @@ export function Pos() {
       <Modal open={receipt != null} kicker="Venta registrada" title={receipt?.number ?? ''} onClose={() => setReceipt(null)}>
         {receipt ? (
           <div>
-            <p className="text-sm text-muted">{receipt.customerName} · {METHOD_LABEL[receipt.method]}</p>
+            <p className="text-sm text-muted">
+              {receipt.customerName}
+              {' · '}
+              {receipt.payments && receipt.payments.length > 1
+                ? receipt.payments.map((part) => `${METHOD_LABEL[part.method]} ${money(part.amount)}`).join(' + ')
+                : METHOD_LABEL[receipt.method]}
+            </p>
             <ul className="mt-5 space-y-2">
               {receipt.lines.map((line) => (
                 <li key={line.productId} className="flex items-start justify-between gap-3 text-sm">
@@ -370,6 +404,12 @@ function TicketBody({
   setDiscount,
   method,
   setMethod,
+  split,
+  setSplit,
+  parts,
+  setPart,
+  received,
+  splitGap,
   tendered,
   setTendered,
   paid,
@@ -401,6 +441,12 @@ function TicketBody({
   setDiscount: (value: number) => void
   method: PayMethod
   setMethod: (value: PayMethod) => void
+  split: boolean
+  setSplit: (value: boolean) => void
+  parts: Record<SplitMethod, number>
+  setPart: (method: SplitMethod, amount: number) => void
+  received: number
+  splitGap: number
   tendered: number
   setTendered: (value: number) => void
   paid: number
@@ -480,6 +526,46 @@ function TicketBody({
         placeholder="0"
         onChange={(event) => setDiscount(Number(event.target.value.replace(/\D/g, '')) || 0)}
       />
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Pago</p>
+        <button type="button" className="text-sm text-brass-deep" onClick={() => setSplit(!split)}>
+          {split ? 'Un solo medio' : 'Dividir pago'}
+        </button>
+      </div>
+      {split ? (
+        <div className="mt-3 space-y-3">
+          {splitMethods.map((item) => (
+            <label key={item} className="block">
+              <span className="text-[11px] tracking-[0.16em] text-muted uppercase">{METHOD_LABEL[item]}</span>
+              <input
+                inputMode="numeric"
+                className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm"
+                value={parts[item] ? new Intl.NumberFormat('es-CO').format(parts[item]) : ''}
+                placeholder="0"
+                onChange={(event) => setPart(item, Number(event.target.value.replace(/\D/g, '')) || 0)}
+              />
+            </label>
+          ))}
+          <p className="text-xs text-muted">
+            Recibido {money(Math.min(received, total))}
+            {received > total ? ` · sobra ${money(received - total)}` : ` · saldo ${money(splitGap)}`}
+          </p>
+          {splitGap > 0 ? (
+            <>
+              <p className="text-xs text-muted">
+                El saldo queda a crédito{customer ? ` · cupo libre ${money(Math.max(0, room))}` : ''}. Elige el cliente.
+              </p>
+              <label className="block text-[11px] tracking-[0.16em] text-muted uppercase">Corte</label>
+              <select className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={dueDate} onChange={(event) => setDueDate(event.target.value)}>
+                <option value="">Sin fecha</option>
+                <option value={nextCutoff(15)}>15 · {nextCutoff(15)}</option>
+                <option value={nextCutoff(30)}>30 · {nextCutoff(30)}</option>
+              </select>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <>
       <div className="mt-4 grid grid-cols-2 gap-2">
         {methods.map((item) => (
           <button
@@ -526,6 +612,8 @@ function TicketBody({
           </select>
         </div>
       ) : null}
+        </>
+      )}
       <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Nota</label>
       <input className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={note} placeholder="Opcional" onChange={(event) => setNote(event.target.value)} />
       {docked ? null : (
@@ -534,7 +622,12 @@ function TicketBody({
             <p className="text-[11px] tracking-[0.16em] text-muted uppercase">Total</p>
             <p className="font-serif text-3xl tabular-nums">{money(total)}</p>
           </div>
-          {method === 'efectivo' && detailed.length > 0 && change > 0 ? <p className="mt-1 text-right text-sm text-muted">Cambio {money(change)}</p> : null}
+          {split && detailed.length > 0 ? (
+            <p className="mt-1 text-right text-sm text-muted">
+              Recibido {money(Math.min(received, total))} · saldo {money(splitGap)}
+            </p>
+          ) : null}
+          {!split && method === 'efectivo' && detailed.length > 0 && change > 0 ? <p className="mt-1 text-right text-sm text-muted">Cambio {money(change)}</p> : null}
           {notice ? <p className="mt-3 text-sm text-warn">{notice}</p> : null}
           <FormError>{error}</FormError>
           <Button className="mt-4 w-full" disabled={detailed.length === 0} onClick={onCharge}>

@@ -138,7 +138,14 @@ export function topProducts(sales: Sale[], limit = 5) {
 
 export function byMethod(sales: Sale[]) {
   const map = new Map<string, number>()
-  for (const sale of sales.filter(isRetailSale)) map.set(sale.method, (map.get(sale.method) ?? 0) + sale.total)
+  for (const sale of sales.filter(isRetailSale)) {
+    if (sale.payments && sale.payments.length > 0) {
+      for (const part of sale.payments) map.set(part.method, (map.get(part.method) ?? 0) + part.amount)
+      if (sale.balance > 0) map.set('credito', (map.get('credito') ?? 0) + sale.balance)
+    } else {
+      map.set(sale.method, (map.get(sale.method) ?? 0) + sale.total)
+    }
+  }
   return [...map.entries()].sort((a, b) => b[1] - a[1])
 }
 
