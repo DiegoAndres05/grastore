@@ -22922,6 +22922,10 @@ function fail$1(error) {
 		error
 	};
 }
+function overdraw(state, account, amount, what) {
+	const available = Math.max(0, accountBalance(state, account.id));
+	return amount > available ? `En ${account.name} hay ${money(available)}. ${what} no puede pasar de ahí.` : null;
+}
 function applyTransfer(state, input) {
 	if (input.fromId === input.toId) return fail$1("Elige dos cuentas distintas");
 	const from = state.accounts.find((account) => account.id === input.fromId && account.active);
@@ -22929,8 +22933,8 @@ function applyTransfer(state, input) {
 	if (!from || !to) return fail$1("Elige las dos cuentas del traslado");
 	const amount = moneyOf(input.amount);
 	if (amount <= 0) return fail$1("Escribe el valor del traslado");
-	const available = Math.max(0, accountBalance(state, from.id));
-	if (amount > available) return fail$1(`En ${from.name} hay ${money(available)}. El traslado no puede pasar de ahí.`);
+	const short = overdraw(state, from, amount, "El traslado");
+	if (short) return fail$1(short);
 	const when = coerceWhen(input.date);
 	const note = input.note?.trim() || `Pasaron a ${to.name}`;
 	let next = withMovement(state, {
@@ -23226,6 +23230,8 @@ function applyLoan(state, input) {
 	if (!person) return fail$1("Escribe a quién se le presta");
 	if (amount <= 0) return fail$1("Escribe el valor del préstamo");
 	if (!account) return fail$1("Elige la cuenta de donde sale el dinero");
+	const short = overdraw(state, account, amount, "El préstamo");
+	if (short) return fail$1(short);
 	const when = coerceWhen(input.date);
 	const loan = {
 		id: uid(),

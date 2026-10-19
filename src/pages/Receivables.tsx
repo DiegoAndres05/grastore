@@ -3,6 +3,7 @@ import { CollectModal } from '../components/CollectModal'
 import { AccountSelect, Badge, Button, Empty, Field, MoneyInput, PageHeader, inputClass, tdClass, thClass } from '../components/ui'
 import { cutoffSummary } from '../lib/accounting'
 import { daysSince, money, relativeDay, todayInput } from '../lib/format'
+import { accountBalance } from '../lib/money'
 import { useStore } from '../store'
 
 export function Receivables() {
@@ -15,6 +16,9 @@ export function Receivables() {
   const [loanPerson, setLoanPerson] = useState('')
   const [loanAmount, setLoanAmount] = useState(0)
   const [loanAccount, setLoanAccount] = useState(state.accounts[0]?.id ?? '')
+  const loanFrom = state.accounts.find((account) => account.id === loanAccount)
+  const loanAvailable = loanFrom ? Math.max(0, accountBalance(state, loanFrom.id)) : 0
+  const loanOver = loanAmount > loanAvailable
   const rows = state.sales
     .filter((sale) => !sale.voided && sale.balance > 0)
     .filter((sale) => !onlyLate || daysSince(sale.date) > 15)
@@ -184,10 +188,15 @@ export function Receivables() {
         <p className="mt-2 text-sm text-muted">Es plata que sale de la caja y no es una venta. Se cobra aparte de la cartera de ropa.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <Field label="A quién"><input className={inputClass} value={loanPerson} onChange={(event) => setLoanPerson(event.target.value)} /></Field>
-          <Field label="Valor"><MoneyInput value={loanAmount} onChange={setLoanAmount} /></Field>
-          <Field label="Sale de"><AccountSelect accounts={state.accounts} value={loanAccount} onChange={setLoanAccount} /></Field>
+          <Field label="Valor" hint={loanOver ? `Solo hay ${money(loanAvailable)} en ${loanFrom?.name ?? 'esa cuenta'}` : undefined}>
+            <MoneyInput value={loanAmount} onChange={setLoanAmount} />
+          </Field>
+          <Field label="Sale de">
+            <AccountSelect accounts={state.accounts} value={loanAccount} onChange={setLoanAccount} />
+            <span className="mt-1.5 block text-xs text-muted">Disponible {money(loanAvailable)}</span>
+          </Field>
         </div>
-        <Button className="mt-4" variant="ghost" onClick={() => {
+        <Button className="mt-4" variant="ghost" disabled={loanOver || loanAmount <= 0} onClick={() => {
           void loan({ person: loanPerson, amount: loanAmount, accountId: loanAccount, date: todayInput() }).then((result) => {
             if (!result.ok) toast(result.error, 'warn')
             else { toast('Préstamo registrado'); setLoanPerson(''); setLoanAmount(0) }

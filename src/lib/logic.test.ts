@@ -308,6 +308,8 @@ describe('caja, gastos y patrimonio', () => {
     if (!capital.ok) return
     state = capital.data.state
 
+    const tooMuch = applyLoan(state, { person: 'Prestatario Ejemplo', amount: 100_001, accountId: 'acct-nequi' })
+    expect(tooMuch.ok).toBe(false)
     const loan = applyLoan(state, { person: 'Prestatario Ejemplo', amount: 50_000, accountId: 'acct-nequi' })
     expect(loan.ok).toBe(true)
     if (!loan.ok) return
