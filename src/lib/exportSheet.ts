@@ -140,7 +140,8 @@ export function pnlRows(state: State, range: Range) {
     { Concepto: 'Caja y bancos', Valor: sheet.cash },
     { Concepto: 'Cartera', Valor: sheet.receivable.total },
     { Concepto: 'Inventario', Valor: sheet.inventory.total },
-    { Concepto: 'Por pagar', Valor: sheet.liabilities },
+    { Concepto: 'Por pagar', Valor: sheet.payables },
+    { Concepto: 'Anticipos de apartados', Valor: sheet.deposits },
     { Concepto: 'Patrimonio', Valor: sheet.equity },
   ]
 }

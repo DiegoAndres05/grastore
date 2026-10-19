@@ -21694,6 +21694,20 @@ async function readBody(req) {
 	for await (const chunk of req) chunks.push(Buffer.from(chunk));
 	return Buffer.concat(chunks).toString("utf8");
 }
+async function readRequestJson(req) {
+	const preset = req.body;
+	if (Buffer.isBuffer(preset)) {
+		const text = preset.toString("utf8").trim();
+		return text ? JSON.parse(text) : {};
+	}
+	if (typeof preset === "string") {
+		const text = preset.trim();
+		return text ? JSON.parse(text) : {};
+	}
+	if (preset && typeof preset === "object") return preset;
+	const text = (await readBody(req)).trim();
+	return text ? JSON.parse(text) : {};
+}
 function send(res, status, body) {
 	res.statusCode = status;
 	res.setHeader("content-type", "application/json; charset=utf-8");
@@ -21760,7 +21774,7 @@ async function handleUsers(req, res) {
 	});
 	let body;
 	try {
-		body = JSON.parse(await readBody(req) || "{}");
+		body = await readRequestJson(req);
 	} catch {
 		return send(res, 400, {
 			ok: false,

@@ -2,10 +2,10 @@ import { Minus, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { METHOD_LABEL, PAY_METHODS, norm, swatch } from '../lib/catalog'
 import { money, nextCutoff, todayInput } from '../lib/format'
-import { availableUnits } from '../lib/money'
-import type { CashMethod, Customer, PayMethod, Product, Sale } from '../types'
+import { accountForMethod, availableUnits } from '../lib/money'
+import type { Account, CashMethod, Customer, PayMethod, Product, Sale } from '../types'
 import { useStore } from '../store'
-import { Button, FormError, Modal } from '../components/ui'
+import { AccountSelect, Button, FormError, Modal } from '../components/ui'
 
 type CartLine = { productId: string; qty: number; price: number }
 const methods: PayMethod[] = PAY_METHODS
@@ -26,6 +26,8 @@ export function Pos() {
   const [split, setSplit] = useState(false)
   const [parts, setParts] = useState(emptyParts)
   const [paid, setPaid] = useState(0)
+  const [deposit, setDeposit] = useState(0)
+  const [depositAccountId, setDepositAccountId] = useState('acct-efectivo')
   const [tendered, setTendered] = useState(0)
   const [note, setNote] = useState('')
   const [when, setWhen] = useState(todayInput())
@@ -145,6 +147,7 @@ export function Pos() {
     setCart([])
     setDiscount(0)
     setPaid(0)
+    setDeposit(0)
     setTendered(0)
     setParts(emptyParts())
     setNote('')
@@ -162,8 +165,8 @@ export function Pos() {
     const result = await layaway({
       customerId,
       lines: cart.map((line) => ({ productId: line.productId, qty: line.qty, price: line.price })),
-      deposit: Math.min(paid, total),
-      accountId: 'acct-efectivo',
+      deposit: Math.min(deposit, total),
+      accountId: depositAccountId,
       dueDate: dueDate || null,
       date: when,
       note,
@@ -174,6 +177,7 @@ export function Pos() {
     }
     setCart([])
     setPaid(0)
+    setDeposit(0)
     setNote('')
     setError('')
     setTicketOpen(false)
@@ -208,7 +212,14 @@ export function Pos() {
       setMethod={(value) => {
         setSplit(false)
         setMethod(value)
+        const box = accountForMethod(state, value)
+        if (box) setDepositAccountId(box.id)
       }}
+      deposit={deposit}
+      setDeposit={setDeposit}
+      depositAccountId={depositAccountId}
+      setDepositAccountId={setDepositAccountId}
+      accounts={state.accounts}
       split={split}
       setSplit={setSplit}
       parts={parts}
@@ -414,6 +425,11 @@ function TicketBody({
   setTendered,
   paid,
   setPaid,
+  deposit,
+  setDeposit,
+  depositAccountId,
+  setDepositAccountId,
+  accounts,
   creditDue,
   customer,
   owed,
@@ -451,6 +467,11 @@ function TicketBody({
   setTendered: (value: number) => void
   paid: number
   setPaid: (value: number) => void
+  deposit: number
+  setDeposit: (value: number) => void
+  depositAccountId: string
+  setDepositAccountId: (value: string) => void
+  accounts: Account[]
   creditDue: number
   customer: Customer | undefined
   owed: number
@@ -614,6 +635,23 @@ function TicketBody({
       ) : null}
         </>
       )}
+      <div className="mt-4">
+        <label className="text-[11px] tracking-[0.16em] text-muted uppercase">Abono del apartado</label>
+        <input
+          inputMode="numeric"
+          className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm"
+          value={deposit ? new Intl.NumberFormat('es-CO').format(deposit) : ''}
+          placeholder="0"
+          onChange={(event) => setDeposit(Number(event.target.value.replace(/\D/g, '')) || 0)}
+        />
+        <label className="mt-3 block text-[11px] tracking-[0.16em] text-muted uppercase">Entra a</label>
+        <div className="mt-2">
+          <AccountSelect value={depositAccountId} onChange={setDepositAccountId} accounts={accounts} />
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          Solo al apartar. No es la venta: el abono entra a esa caja y la prenda queda reservada. La utilidad se cuenta al entregar.
+        </p>
+      </div>
       <label className="mt-4 block text-[11px] tracking-[0.16em] text-muted uppercase">Nota</label>
       <input className="mt-2 w-full rounded-xl border border-line bg-card px-3 py-2 text-sm" value={note} placeholder="Opcional" onChange={(event) => setNote(event.target.value)} />
       {docked ? null : (

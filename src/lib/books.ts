@@ -437,6 +437,7 @@ export function applyLayaway(state: State, input: LayawayInput): Result<{ state:
     balance: total - deposit,
     status: 'abierto',
     note: input.note?.trim() ?? '',
+    accountId: account?.id ?? null,
     ...stamp(input.actor),
   }
   let next: State = {
@@ -476,7 +477,12 @@ export function applyLayawayDeposit(
   if (amount <= 0) return fail('Escribe el valor del abono')
   if (amount > current.balance) return fail('El abono supera el saldo del apartado')
   const when = coerceWhen(input.date)
-  const layaway: Layaway = { ...current, deposited: current.deposited + amount, balance: current.balance - amount }
+  const layaway: Layaway = {
+    ...current,
+    deposited: current.deposited + amount,
+    balance: current.balance - amount,
+    accountId: current.accountId || account.id,
+  }
   let next: State = { ...state, layaways: state.layaways.map((item) => (item.id === layaway.id ? layaway : item)) }
   next = withMovement(next, {
     date: when,
@@ -514,7 +520,7 @@ export function applyCompleteLayaway(
     balance: 0,
     tendered: null,
     note: `Plan separe ${layaway.number}`,
-    accountId: null,
+    accountId: layaway.accountId ?? null,
     cashIn: 0,
     dueDate: null,
     kind: 'retail',
@@ -576,10 +582,17 @@ export function applyVoidSale(state: State, input: { saleId: string; date?: stri
   const sale = state.sales.find((item) => item.id === input.saleId)
   if (!sale) return fail('Venta no encontrada')
   if (sale.voided) return fail('Esa venta ya está anulada')
+  const layawaySale = Boolean(sale.layawayId)
+  if (layawaySale && sale.lines.some((line) => (line.returnedQty ?? 0) > 0)) {
+    return fail('Este apartado ya tiene una devolución. No se puede anular la entrega.')
+  }
   const cashIn = sale.cashIn ?? (sale.method === 'credito' ? sale.paid : sale.total)
-  if ((sale.kind ?? 'retail') !== 'opening' && sale.paid > cashIn) return fail('Esta venta ya tiene abonos. Registra una devolución.')
+  // The delivery sale records cashIn 0 because the deposit was already collected.
+  // paid is the price, so the usual "already has payments" check does not apply.
+  if (!layawaySale && (sale.kind ?? 'retail') !== 'opening' && sale.paid > cashIn) return fail('Esta venta ya tiene abonos. Registra una devolución.')
   const when = coerceWhen(input.date)
   const qtyById = new Map(sale.lines.map((line) => [line.productId, line.qty - (line.returnedQty ?? 0)]))
+  const reopen = sale.layawayId ? state.layaways.find((item) => item.id === sale.layawayId && item.lines.length > 0) : undefined
   let next: State = {
     ...state,
     sales: state.sales.map((item) =>
@@ -587,12 +600,20 @@ export function applyVoidSale(state: State, input: { saleId: string; date?: stri
         ? { ...item, voided: true, balance: 0, voidedBy: input.actor?.id ?? null, voidedByName: input.actor?.name ?? null }
         : item,
     ),
+    layaways: reopen
+      ? state.layaways.map((item) => (item.id === reopen.id ? { ...item, status: 'abierto', balance: 0, deposited: item.total } : item))
+      : state.layaways,
     products:
-      sale.affectsStock === false
+      sale.affectsStock === false && !reopen
         ? state.products
         : state.products.map((product) => {
             const qty = qtyById.get(product.id)
-            return qty ? { ...product, stock: product.stock + qty } : product
+            if (!qty) return product
+            return {
+              ...product,
+              stock: sale.affectsStock === false ? product.stock : product.stock + qty,
+              reserved: reopen ? (product.reserved ?? 0) + qty : product.reserved,
+            }
           }),
     customers:
       sale.customerId && sale.balance > 0

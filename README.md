@@ -7,14 +7,14 @@ La interfaz está en español. Sin configurar un servidor, la app sigue funciona
 ## Qué puede hacer
 
 - Vender con precio por prenda (por encima o por debajo de la lista), fecha, Nequi, efectivo, Bancolombia, tarjeta o crédito con corte del 15 o del 30.
-- Apartar con plan separe: el abono reserva la prenda y no se puede vender hasta entregar o cancelar.
+- Apartar con plan separe: el abono entra a la caja elegida (efectivo, Nequi o Bancolombia) y queda como anticipo. La prenda sigue en inventario a costo, reservada, y no se puede vender. La venta y la utilidad se reconocen al entregar. Cancelar devuelve el abono.
 - Anular, corregir precios y devolver.
 - Ajustar inventario con un motivo. Categorías y colores se editan.
 - Compras con detalle, o una inversión por un valor sin prendas (como las filas `INVERSION` del Excel).
 - Caja con saldo corrido y traslados entre cuentas.
 - Gastos (sueldos, domicilios, envíos, servicios, comida), deudas y sus pagos.
 - Aportes y préstamos de capital. Préstamos a terceros, aparte de las ventas.
-- Balance: caja + cartera + inventario − por pagar = patrimonio.
+- Balance: caja + cartera + inventario − por pagar − anticipos de apartados = patrimonio. Crear un apartado no cambia el patrimonio. Un plan separe importado sin prenda sigue en la cartera.
 - Pérdidas y ganancias por fechas, cierre mensual con sueldo (25% de la utilidad, configurable) y vista por día.
 - Importar el `.xlsx` de contabilidad, con vista previa para unir nombres, corregir colores y decidir qué entra.
 - Exportar inventario, ventas, cartera, deudas, caja y P y G a Excel o CSV.
@@ -63,6 +63,8 @@ Un trabajador que llame la API no recibe costos, saldos de caja, gastos ni conta
 - Si entrar funciona pero guardar dice que falta la clave del servidor, falta `SUPABASE_SERVICE_ROLE_KEY` o no se redeployó.
 - En modo local cada navegador tiene su propio libro y entra como dueño.
 - En Supabase → Database → Publications, la tabla `book_signal` debe estar en `supabase_realtime`. El SQL ya la agrega.
+- El navegador no consulta `profiles`. `0002` le quitó el permiso y esa consulta respondía 403. El nombre del aviso sale de los datos guardados al crear la cuenta. No hace falta otro SQL por eso.
+- `api/book` y `api/users` leen el JSON aunque la plataforma ya lo haya parseado. Si guardar respondía 400 sin un motivo claro, vuelve a desplegar para publicar esas funciones. No hay migración.
 - Si el login dice que el registro está cerrado y en Authentication → Users no hay nadie, la pantalla antigua trataba un error de `signup_open()` como si ya hubiera dueño. Corre `supabase/migrations/0003_signup_open.sql` y vuelve a desplegar. Para ver el estado actual, en el SQL Editor:
 
 ```sql
@@ -96,9 +98,9 @@ El asistente lee las seis hojas (`Inv Actual`, `CxC`, `CxP`, `Neq o Efe`, `Perd 
 |---|---|
 | Prendas con ventas = 0 | Fichas con existencias. El código repetido gana un sufijo de color y talla. El nombre se arma con el tipo. |
 | Colores que no son colores (una nota, una tela, una marca) | Quedan en «Sin definir» para corregirlos en la vista previa. `ROJA` y `ROJO` se unen. |
-| Compradores y nombres de CxC | Clientes, sin espacios de más. Los parecidos (`Cliente Ejempl` / `Cliente Ejemplo`) se proponen para unir. `PAGO TATUAJE`, `PAUTA`, `PRESTAMO` y similares no entran como personas. |
+| Compradores y nombres de CxC | Clientes, sin espacios de más. Los parecidos (`Cliente Ejempl` / `Cliente Ejemplo`) se proponen para unir, sin marcar. Hay que elegir Unir. `PAGO TATUAJE`, `PAUTA`, `PRESTAMO` y similares no entran como personas. |
 | Saldo de CxC | Venta a crédito de saldo inicial, con el corte del 15 o del 30. No baja inventario. |
-| Plan separe | Apartado con el saldo. El Excel no dice la prenda, así que no reserva stock. |
+| Plan separe | Apartado con el saldo, en la cartera. El Excel no dice la prenda, así que no reserva stock ni crea un anticipo. |
 | Préstamo | Cuenta por cobrar aparte de las ventas. |
 | Filas `INVERSION` y `SALDO A FAVOR` | Proveedor por nombre e inversión sin detalle. Entran al inventario del balance, separadas de las prendas. |
 | Último saldo de Nequi, efectivo y Bancolombia | Saldo inicial de cada cuenta. No se copian los mil movimientos. |

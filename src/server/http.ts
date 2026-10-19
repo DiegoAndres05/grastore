@@ -63,6 +63,26 @@ async function readBody(req: IncomingMessage) {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+type RequestWithBody = IncomingMessage & { body?: unknown }
+
+// Vercel may parse JSON before the handler runs and leave the stream empty.
+// A second read then sees no action and answers 400. Prefer a body that is
+// already an object, a string, or a buffer.
+export async function readRequestJson(req: RequestWithBody): Promise<unknown> {
+  const preset = req.body
+  if (Buffer.isBuffer(preset)) {
+    const text = preset.toString('utf8').trim()
+    return text ? JSON.parse(text) : {}
+  }
+  if (typeof preset === 'string') {
+    const text = preset.trim()
+    return text ? JSON.parse(text) : {}
+  }
+  if (preset && typeof preset === 'object') return preset
+  const text = (await readBody(req)).trim()
+  return text ? JSON.parse(text) : {}
+}
+
 function send(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -157,7 +177,7 @@ async function handleBookRequest(req: IncomingMessage, res: ServerResponse) {
   if ('error' in who) return send(res, 401, { ok: false, error: who.error })
   let body: { action?: string; input?: unknown }
   try {
-    body = JSON.parse((await readBody(req)) || '{}') as { action?: string; input?: unknown }
+    body = (await readRequestJson(req)) as { action?: string; input?: unknown }
   } catch {
     return send(res, 400, { ok: false, error: 'El cuerpo no es JSON' })
   }
@@ -212,7 +232,7 @@ export async function handleUsers(req: IncomingMessage, res: ServerResponse) {
 
   let body: Record<string, unknown>
   try {
-    body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>
+    body = (await readRequestJson(req)) as Record<string, unknown>
   } catch {
     return send(res, 400, { ok: false, error: 'El cuerpo no es JSON' })
   }

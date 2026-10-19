@@ -75,9 +75,9 @@ export async function usersRequest(method: 'GET' | 'POST', input?: unknown) {
 }
 
 export async function loadProfile(session: Session) {
-  const db = supabase()
+  // 0002 revoked SELECT on profiles for the signed-in role. The banner uses
+  // the name stored at signup. The server still reads profiles with the
+  // service role when it records who made a change.
   const fallback = session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || 'Usuario'
-  if (!db) return String(fallback)
-  const { data } = await db.from('profiles').select('display_name').eq('id', session.user.id).maybeSingle()
-  return (data?.display_name as string) || String(fallback)
+  return String(fallback)
 }
